@@ -1,0 +1,10 @@
+{
+  "max_order": 2,
+  "entries": [
+    {"types": ["CG331", "CG321"], "values": [0.01]},
+    {"types": ["CG321", "OG311"], "values": [0.29]},
+    {"types": ["CG331", "HGA3"], "values": [0.08]},
+    {"types": ["CG321", "HGA2"], "values": [0.08]},
+    {"types": ["OG311", "HGP1"], "values": [0.39]}
+  ]
+}

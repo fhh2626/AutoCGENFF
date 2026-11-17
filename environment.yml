@@ -1,0 +1,14 @@
+name: autocgenff
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - rdkit
+  - numpy
+  - scipy
+  - pytest
+  - ruff
+  - python-build
+  - pip
+  - setuptools>=68
+  - wheel

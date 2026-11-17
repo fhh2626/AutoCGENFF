@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autocgenff"
+version = "0.1.0"
+description = "Independent CHARMM CGenFF-inspired small-molecule parameter diagnostics"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["rdkit>=2023.9", "numpy>=1.24", "scipy>=1.10"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff", "build"]
+
+[project.scripts]
+autocgenff = "autocgenff.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["force_fields"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

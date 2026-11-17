@@ -1,0 +1,5 @@
+include environment.yml
+recursive-include tests *.py
+recursive-include examples *.json
+exclude ci300363c.pdf ci3003649.pdf ChinFo_python_vibe_coding_guide.md
+prune force_fields

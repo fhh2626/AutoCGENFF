@@ -1,0 +1,15 @@
+# Local reference inputs; do not redistribute.
+/ci300363c.pdf
+/ci3003649.pdf
+/ChinFo_python_vibe_coding_guide.md
+/force_fields/
+
+# Build and development products.
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+/dist/
+.pytest_cache/
+.ruff_cache/
+.venv/
