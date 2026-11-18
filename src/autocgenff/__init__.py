@@ -8,6 +8,8 @@ from .molecule import prepare_molecule
 from .parameters import read_parameters
 from .topology import read_topology
 from .typing import TypingRule
+from .v5_assignment import V5Assignment, V5ForceField, parameterize_v5
+from .v5_stream import write_v5_stream
 
 __all__ = [
     "AssignmentOptions",
@@ -17,8 +19,12 @@ __all__ = [
     "ChargeModel",
     "PenaltyModel",
     "TypingRule",
+    "V5Assignment",
+    "V5ForceField",
     "parameterize",
+    "parameterize_v5",
     "prepare_molecule",
     "read_parameters",
     "read_topology",
+    "write_v5_stream",
 ]

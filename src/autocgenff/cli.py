@@ -17,6 +17,9 @@ from .errors import AutoCGENFFError
 from .parameters import read_parameters
 from .topology import read_topology
 from .typing import TypingRule
+from .v5 import type_v5
+from .v5_assignment import parameterize_v5
+from .v5_stream import write_v5_stream
 
 
 class _JSONArgumentParser(argparse.ArgumentParser):
@@ -24,11 +27,18 @@ class _JSONArgumentParser(argparse.ArgumentParser):
         raise AutoCGENFFError(message)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = _JSONArgumentParser(description=__doc__)
+def _add_source(parser: argparse.ArgumentParser) -> None:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--smiles", help="single molecule as SMILES")
     source.add_argument("--input", type=Path, help="single molecule in SDF or MOL2")
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = _JSONArgumentParser(
+        description=__doc__,
+        epilog="Local workflows: autocgenff assign-v5 --help (ligand stream and audit), autocgenff type-v5 --help (typing only).",
+    )
+    _add_source(parser)
     parser.add_argument("--prm", type=Path, required=True, help="local CHARMM parameter file")
     parser.add_argument("--rtf", type=Path, help="local CHARMM topology file")
     parser.add_argument("--template", help="explicitly identified RTF residue name")
@@ -188,10 +198,65 @@ def _options(args: argparse.Namespace) -> AssignmentOptions:
     )
 
 
+def _assign_v5(arguments: Sequence[str]) -> int:
+    parser = _JSONArgumentParser(
+        prog="autocgenff assign-v5",
+        description="Parameterize one ligand using local additive v5 inputs; write JSON audit to stdout.",
+    )
+    _add_source(parser)
+    parser.add_argument(
+        "--force-field",
+        type=Path,
+        required=True,
+        help="directory containing the base CGenFF RTF and PRM",
+    )
+    parser.add_argument(
+        "--increments",
+        type=Path,
+        help="native increment PRM (default: conventional filename beside base PRM)",
+    )
+    parser.add_argument(
+        "--stream", type=Path, help="write a checked CHARMM .str only on complete coverage"
+    )
+    parser.add_argument("--residue", default="LIG", help="new stream residue name (default LIG)")
+    args = parser.parse_args(arguments)
+    with rdBase.BlockLogs():
+        result = parameterize_v5(
+            args.input if args.smiles is None else args.smiles,
+            args.force_field,
+            increments_path=args.increments,
+        )
+    document = {**asdict(result), "is_complete": result.is_complete, "stream_written": None}
+    if args.stream is not None and result.is_complete:
+        try:
+            write_v5_stream(result, args.stream, residue_name=args.residue)
+        except (AutoCGENFFError, OSError) as exc:
+            document["stream_error"] = str(exc)
+            print(json.dumps(document, indent=2, allow_nan=False))
+            raise
+        document["stream_written"] = {"path": str(args.stream), "residue": args.residue}
+    print(json.dumps(document, indent=2, allow_nan=False))
+    return 0 if result.is_complete else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Write JSON to stdout; return 0 complete, 1 incomplete, 2 invalid input."""
     try:
-        args = _parser().parse_args(argv)
+        arguments = list(sys.argv[1:] if argv is None else argv)
+        if arguments[:1] == ["assign-v5"]:
+            return _assign_v5(arguments[1:])
+        if arguments[:1] == ["type-v5"]:
+            parser = _JSONArgumentParser(
+                prog="autocgenff type-v5",
+                description="Type atoms only using the bundled local-v5 profile.",
+            )
+            _add_source(parser)
+            args = parser.parse_args(arguments[1:])
+            with rdBase.BlockLogs():
+                typed = type_v5(args.input if args.smiles is None else args.smiles)
+            print(json.dumps({**asdict(typed), "is_complete": typed.is_complete}, indent=2))
+            return 0 if typed.is_complete else 1
+        args = _parser().parse_args(arguments)
         # Native RDKit logs would otherwise corrupt the CLI's JSON stderr channel.
         with rdBase.BlockLogs():
             options = _options(args)

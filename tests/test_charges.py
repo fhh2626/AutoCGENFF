@@ -59,7 +59,7 @@ def test_cutoff_returns_zero_transfers_with_nonzero_atom_penalties():
     )
     assert result.charges == (0.0,) * 4
     assert result.terms[0].status == "cutoff" and result.terms[0].penalty == 50
-    assert result.atom_penalties == pytest.approx((2.5, 2.5 * 2**0.5, 2.5 * 2**0.5, 2.5))
+    assert result.atom_penalties == pytest.approx((2.5,) * 4)
 
 
 def test_custom_baseline_preserves_charge_on_each_fragment():

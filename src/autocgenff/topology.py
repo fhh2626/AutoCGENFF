@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from math import fsum, isclose
+from math import fsum, isclose, isfinite
 from pathlib import Path
 
 from rdkit import Chem
@@ -56,6 +56,8 @@ class Topology:
     source: Path
     residues: dict[str, Residue]
     elements: dict[str, str]
+    masses: dict[str, float] = field(default_factory=dict)
+    patch_names: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +117,9 @@ def _is_starred_ic_atom(parts: list[str], tokens: list[str], continued: bool) ->
 def read_topology(path: Path) -> Topology:
     """Parse an RTF; defer unsupported directives to selection of the residue."""
     residues = {}
+    patch_names = set()
     elements = {}
+    masses = {}
     current = None
     auto_angles = auto_propers = False
     default_first = default_last = None
@@ -124,8 +128,13 @@ def read_topology(path: Path) -> Topology:
         try:
             if head == "END":
                 break
-            if head == "MASS" and len(args) >= 4:
-                elements[args[1]] = args[3].title()
+            if head == "MASS":
+                mass = float(args[2])
+                if not isfinite(mass) or mass < 0:
+                    raise ValueError("invalid mass")
+                masses[args[1]] = mass
+                if len(args) >= 4:
+                    elements[args[1]] = args[3].title()
             if head in {"AUTO", "AUTOGENERATE"}:
                 auto_angles = any(arg.startswith("ANGL") for arg in args)
                 auto_propers = any(arg.startswith("DIHE") for arg in args)
@@ -134,6 +143,7 @@ def read_topology(path: Path) -> Topology:
                 default_first, default_last = _patch_names(args, default_first, default_last)
                 continue
             if head in {"PRES", "PRESIDUE"}:
+                patch_names.add(args[0])
                 current = None
                 continue
             if head in {"RESI", "RESIDUE"}:
@@ -156,7 +166,7 @@ def read_topology(path: Path) -> Topology:
             raise AutoCGENFFError(f"{path}:{line_no}: invalid RTF {head}: {exc}") from exc
     if not residues:
         raise AutoCGENFFError(f"No RESI definitions found in {path}")
-    return Topology(path, residues, elements)
+    return Topology(path, residues, elements, masses, patch_names)
 
 
 def _patch_names(

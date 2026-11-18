@@ -112,7 +112,9 @@ def test_cli_json_complete_incomplete_and_input_error(synthetic_forcefield, tmp_
         '{"name":"hydrogen","smarts":"[#1]","atom_type":"H"}]',
         encoding="utf-8",
     )
-    assert main([*common, "--rules", str(rules), "--no-impropers"]) == 1
+    assert main([*common, "--rules", str(rules), "--no-impropers"]) == 2
+    assert "toppar_water_ions.str" in json.loads(capsys.readouterr().err)["error"]
+    assert main(["--prm", str(prm), "--smiles", "CO", "--rules", str(rules), "--no-impropers"]) == 1
     output = json.loads(capsys.readouterr().out)
     assert output["is_complete"] is False
     assert all(atom["partial_charge"] is None for atom in output["atoms"])

@@ -85,6 +85,21 @@ _BOND_TYPES = {
 }
 
 
+def reject_ligand_water(molecule: Chem.Mol) -> None:
+    """Reject neutral water components of a prepared, explicit-H ligand graph."""
+    for atom in molecule.GetAtoms():
+        if atom.GetAtomicNum() != 8 or atom.GetFormalCharge() or atom.GetDegree() != 2:
+            continue
+        if all(
+            other.GetAtomicNum() == 1 and other.GetFormalCharge() == 0 and other.GetDegree() == 1
+            for other in atom.GetNeighbors()
+        ) and all(b.GetBondType() == Chem.BondType.SINGLE for b in atom.GetBonds()):
+            raise AutoCGENFFError(
+                f"Neutral water component at oxygen {atom.GetIdx()}; use toppar_water_ions.str "
+                "separately, not ligand parameterization"
+            )
+
+
 def _reject_query_bonds_and_allene_stereo(molecule: Chem.Mol) -> None:
     if any(bond.HasQuery() for bond in molecule.GetBonds()):
         raise AutoCGENFFError("Query bonds are not supported")
@@ -110,12 +125,15 @@ def _read_mol2(path: Path) -> Chem.Mol | None:
     lines = block.splitlines()
     start = _validate_mol2_record(lines, path)
     title = lines[start + 1]
-    if not title.startswith(_MOL2_HEADER):
-        return Chem.MolFromMol2Block(block, removeHs=False)
-    # RDKit can rescan a marker-shaped title as a header. It is only metadata.
-    lines[start + 1] = "MOL2 molecule"
-    molecule = Chem.MolFromMol2Block("\n".join(lines) + "\n", removeHs=False)
+    if title.startswith(_MOL2_HEADER):
+        # RDKit can rescan a marker-shaped title as a header. It is only metadata.
+        lines[start + 1] = "MOL2 molecule"
+        block = "\n".join(lines) + "\n"
+    molecule = Chem.MolFromMol2Block(block, removeHs=False)
     if molecule is not None:
+        expected = tuple(map(int, lines[start + 2].split()[:2]))
+        if expected != (molecule.GetNumAtoms(), molecule.GetNumBonds()):
+            raise AutoCGENFFError(f"RDKit would discard MOL2 atoms or bonds in {path}")
         molecule.SetProp("_Name", title)
     return molecule
 

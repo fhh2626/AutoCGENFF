@@ -1,4 +1,5 @@
 include environment.yml
+include docs/local-v5.md tools/score_v5_b1.py
 recursive-include tests *.py
 recursive-include examples *.json
 exclude ci300363c.pdf ci3003649.pdf ChinFo_python_vibe_coding_guide.md

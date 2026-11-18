@@ -1,7 +1,7 @@
 """Antisymmetric bond, angle and proper-torsion charge increments."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import fsum, isclose, isfinite, sqrt
 from types import MappingProxyType
 
@@ -32,9 +32,12 @@ class ChargeModel:
     The torsion cutoff must be finite and positive.
     """
 
-    increments: Mapping[Types, tuple[float, ...]]
+    increments: Mapping[Types, tuple[float, ...] | None]  # None is explicit native N/A, not missing
     max_order: int = 4
     torsion_cutoff: float = 50.0
+    # Canonical key -> original oriented native row and its line number.
+    source_rows: Mapping[Types, tuple[Types, int]] = field(default_factory=dict)
+    infer_identical_bonds: bool = True
 
     def __post_init__(self) -> None:
         if self.max_order not in (2, 3, 4):
@@ -43,24 +46,27 @@ class ChargeModel:
             raise AutoCGENFFError("Torsion cutoff must be finite and positive")
         canonical = {}
         for types, values in self.increments.items():
-            values = tuple(values)
+            values = None if values is None else tuple(values)
             if (
                 not isinstance(types, tuple)
                 or not 2 <= len(types) <= self.max_order
-                or len(values) != len(types) - 1
-                or not all(isfinite(value) for value in values)
+                or (
+                    values is not None
+                    and (len(values) != len(types) - 1 or not all(map(isfinite, values)))
+                )
                 or not all(isinstance(item, str) and item and item != "X" for item in types)
             ):
                 raise AutoCGENFFError(f"Invalid increment entry for {types}")
             key = min(types, types[::-1])
-            if types == types[::-1] and values != reverse_increments(values):
+            if values is not None and types == types[::-1] and values != reverse_increments(values):
                 raise AutoCGENFFError(
                     f"Palindromic increment entry must be reversal-invariant: {types}"
                 )
-            normal = values if key == types else reverse_increments(values)
+            normal = values if values is None or key == types else reverse_increments(values)
             if canonical.setdefault(key, normal) != normal:
                 raise AutoCGENFFError(f"Conflicting reverse increment entries for {types}")
         object.__setattr__(self, "increments", MappingProxyType(canonical))
+        object.__setattr__(self, "source_rows", MappingProxyType(dict(self.source_rows)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +80,7 @@ class IncrementMatch:
     penalty: float | None
     status: str
     reversed: bool = False
+    source_line: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,13 +112,12 @@ def _check_charge_totals(
     molecule: Chem.Mol, values: Sequence[float], reference: Sequence[float], message: str
 ) -> None:
     for fragment in Chem.GetMolFrags(molecule):
-        if not isclose(
-            fsum(values[i] for i in fragment),
-            fsum(reference[i] for i in fragment),
-            rel_tol=0,
-            abs_tol=CHARGE_TOLERANCE,
-        ):
-            raise AutoCGENFFError(message)
+        total = fsum(values[i] for i in fragment)
+        expected = fsum(reference[i] for i in fragment)
+        if not isclose(total, expected, rel_tol=0, abs_tol=CHARGE_TOLERANCE):
+            raise AutoCGENFFError(
+                f"{message}: component starting at atom {fragment[0]} sums to {total}, expected {expected}"
+            )
 
 
 def assign_charges(
@@ -147,17 +153,34 @@ def assign_charges(
         if key not in looked_up:
             looked_up[key] = _match_increment(term.kind, requested, model, penalties)
         source, values, score, status, reverse = looked_up[key]
-        matches.append(IncrementMatch(term, requested, source, values, score, status, reverse))
+        row = model.source_rows.get(source) if source is not None else None
+        if row is not None:
+            reverse = reverse != (row[0] != source)
+            source = row[0]
+        matches.append(
+            IncrementMatch(
+                term,
+                requested,
+                source,
+                values,
+                score,
+                status,
+                reverse,
+                None if row is None else row[1],
+            )
+        )
+        if status in {"not_applicable", "analogy_not_applicable"}:
+            continue
         if values is None or score is None:
             missing = True
             continue
-        for left, right, transfer in zip(term.atoms[:-1], term.atoms[1:], values, strict=True):
-            deltas[left].append(-transfer)
-            deltas[right].append(transfer)
-            # Eq. 4 weights the squared penalty, giving a 5% floor after sqrt.
-            squared_error = (abs(transfer) + ZERO_WEIGHT) ** (1 / 3) * score**2
-            errors[left].append(squared_error)
-            errors[right].append(squared_error)
+        # Eq. 4 counts one net transfer per atom *per parameter instance*,
+        # not two independent errors on an inner atom of the same instance.
+        extended = (0.0, *values, 0.0)
+        for k, atom in enumerate(term.atoms):
+            net = extended[k] - extended[k + 1]
+            deltas[atom].append(net)
+            errors[atom].append((abs(net) + ZERO_WEIGHT) ** (1 / 3) * score**2)
     if missing:
         return ChargeResult(None, None, tuple(matches))
     charges = tuple(fsum((value, *delta)) for value, delta in zip(start, deltas, strict=True))
@@ -172,18 +195,20 @@ def _match_increment(
 ) -> tuple[Types | None, tuple[float, ...] | None, float | None, str, bool]:
     target = min(requested, requested[::-1])
     target_reversed = requested != target
-    exact = model.increments.get(target)
-    if exact is not None:
+    if target in model.increments:
+        exact = model.increments[target]
+        if exact is None:
+            return target, None, 0.0, "not_applicable", target_reversed
         values = reverse_increments(exact) if target_reversed else exact
         return target, values, 0.0, "exact", target_reversed
-    if kind == Kind.BOND and target == target[::-1]:
+    if model.infer_identical_bonds and kind == Kind.BOND and target == target[::-1]:
         return target, (0.0,), 0.0, "identical_bond_types", False
     if penalties is None:
         return None, None, None, "missing", False
     candidates = (
         key
         for key, values in model.increments.items()
-        if target != target[::-1] or values == reverse_increments(values)
+        if target != target[::-1] or values is None or values == reverse_increments(values)
     )
     candidate = best_analogy(kind, target, candidates, penalties, for_charge=True)
     if candidate is None:
@@ -192,6 +217,8 @@ def _match_increment(
     if kind == Kind.PROPER and candidate.penalty > model.torsion_cutoff:
         return candidate.types, (0.0, 0.0, 0.0), model.torsion_cutoff, "cutoff", reverse
     values = model.increments[candidate.types]
+    if values is None:
+        return candidate.types, None, candidate.penalty, "analogy_not_applicable", reverse
     if reverse:
         values = reverse_increments(values)
     return candidate.types, values, candidate.penalty, "analogy", reverse

@@ -16,6 +16,9 @@ dev = ["pytest>=7", "ruff", "build"]
 [project.scripts]
 autocgenff = "autocgenff.cli:main"
 
+[tool.setuptools.package-data]
+"autocgenff.v5" = ["*.rules", "LICENSE-LigandFF.txt"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

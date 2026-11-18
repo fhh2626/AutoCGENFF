@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from rdkit import Chem
 
 from .errors import AutoCGENFFError
+from .molecule import reject_ligand_water
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +87,7 @@ def type_atoms(
     molecule: Chem.Mol, rules: Sequence[TypingRule] = (), *, include_builtin: bool = True
 ) -> tuple[TypedAtom, ...]:
     """Apply prioritized rules to a prepared molecule; raises for any untyped atom."""
+    reject_ligand_water(molecule)
     candidates = (*rules, *BUILTIN_RULES) if include_builtin else tuple(rules)
     assignments: list[TypedAtom | None] = [None] * molecule.GetNumAtoms()
     for rule in sorted(candidates, key=lambda item: -item.priority):
