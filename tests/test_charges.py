@@ -10,6 +10,11 @@ from autocgenff.fitting import TypedReference, fit_increments
 from autocgenff.molecule import Kind, Term, inventory, prepare_molecule
 
 
+def test_linear_center_types_cannot_be_a_bare_string() -> None:
+    with pytest.raises(AutoCGENFFError, match="collection of explicit atom types"):
+        ChargeModel({}, linear_centers="CG1N1")
+
+
 def test_bond_angle_proper_increment_reversal_and_conservation():
     molecule = Chem.MolFromSmiles("CCCC")
     model = ChargeModel(
@@ -44,6 +49,20 @@ def test_missing_increment_returns_no_partial_charges():
     charges = assign_charges(molecule, ("A", "B"), inventory(molecule), ChargeModel({}))
     assert charges.charges is None and charges.atom_penalties is None
     assert charges.terms[0].status == "missing"
+
+
+def test_linear_centers_apply_after_exact_rows_and_only_to_central_proper_atoms():
+    molecule = Chem.MolFromSmiles("CCCC")
+    path = [Term(Kind.PROPER, (0, 1, 2, 3))]
+    with pytest.raises(AutoCGENFFError, match="Linear centers"):
+        ChargeModel({}, linear_centers=frozenset({"X"}))
+    model = ChargeModel({("A", "L", "C", "D"): (0.1, 0.2, 0.3)}, linear_centers=frozenset({"L"}))
+    exact = assign_charges(molecule, ("A", "L", "C", "D"), path, model)
+    assert exact.terms[0].status == "exact" and exact.charges == pytest.approx((-0.1, -0.1, -0.1, 0.3))
+    linear = assign_charges(molecule, ("B", "C", "L", "E"), path, model)
+    assert linear.terms[0].status == "linear_not_applicable" and linear.charges == (0, 0, 0, 0)
+    terminal = assign_charges(molecule, ("L", "B", "C", "E"), path, model)
+    assert terminal.terms[0].status == "missing" and terminal.charges is None
 
 
 def test_cutoff_returns_zero_transfers_with_nonzero_atom_penalties():

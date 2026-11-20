@@ -29,7 +29,8 @@ class ChargeModel:
     Keys are ordered type tuples of length 2, 3 or 4. Entries give one transfer
     from each path atom to the next. A lower max_order selects a reduced model
     explicitly; a missing entry within that order makes per-atom charges unknown.
-    The torsion cutoff must be finite and positive.
+    The torsion cutoff must be finite and positive. A proper path without an exact
+    entry transfers nothing if one of its two central types is in linear_centers.
     """
 
     increments: Mapping[Types, tuple[float, ...] | None]  # None is explicit native N/A, not missing
@@ -38,6 +39,7 @@ class ChargeModel:
     # Canonical key -> original oriented native row and its line number.
     source_rows: Mapping[Types, tuple[Types, int]] = field(default_factory=dict)
     infer_identical_bonds: bool = True
+    linear_centers: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if self.max_order not in (2, 3, 4):
@@ -67,6 +69,12 @@ class ChargeModel:
                 raise AutoCGENFFError(f"Conflicting reverse increment entries for {types}")
         object.__setattr__(self, "increments", MappingProxyType(canonical))
         object.__setattr__(self, "source_rows", MappingProxyType(dict(self.source_rows)))
+        if isinstance(self.linear_centers, str):
+            raise AutoCGENFFError("Linear centers must be a collection of explicit atom types")
+        centers = frozenset(self.linear_centers)
+        if not all(isinstance(item, str) and item and item != "X" for item in centers):
+            raise AutoCGENFFError("Linear centers must be explicit atom types")
+        object.__setattr__(self, "linear_centers", centers)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +177,7 @@ def assign_charges(
                 None if row is None else row[1],
             )
         )
-        if status in {"not_applicable", "analogy_not_applicable"}:
+        if status in {"not_applicable", "analogy_not_applicable", "linear_not_applicable"}:
             continue
         if values is None or score is None:
             missing = True
@@ -203,6 +211,9 @@ def _match_increment(
         return target, values, 0.0, "exact", target_reversed
     if model.infer_identical_bonds and kind == Kind.BOND and target == target[::-1]:
         return target, (0.0,), 0.0, "identical_bond_types", False
+    # A torsion about a linear angle is undefined; the model gives such a path no transfer.
+    if kind == Kind.PROPER and model.linear_centers.intersection(target[1:3]):
+        return None, None, 0.0, "linear_not_applicable", False
     if penalties is None:
         return None, None, None, "missing", False
     candidates = (

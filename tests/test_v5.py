@@ -8,6 +8,20 @@ from rdkit import Chem
 from autocgenff.cli import main
 from autocgenff.errors import AutoCGENFFError
 from autocgenff.v5 import _aromaticity, type_v5, v5_vocabulary
+from autocgenff.v5._rules import RuleSyntaxError, parse
+
+
+@pytest.mark.parametrize(
+    ("condition", "message"),
+    [
+        ("rne ring (el C) (el C) (el N)", "at most two ring-neighbor groups"),
+        ("iminium_charge charge 0", "only one charge action"),
+        ("charge 0 iminium_charge", "only one charge action"),
+    ],
+)
+def test_rule_parser_rejects_impossible_or_conflicting_rules(condition: str, message: str) -> None:
+    with pytest.raises(RuleSyntaxError, match=message):
+        parse(f"cat main\ntyp TEST : {condition}\nend\n")
 
 
 @pytest.mark.parametrize(

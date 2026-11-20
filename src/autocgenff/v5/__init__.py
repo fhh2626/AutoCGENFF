@@ -8,6 +8,7 @@ from pathlib import Path
 from rdkit import Chem
 
 from ..molecule import prepare_molecule, reject_ligand_water
+from ._acyl import normalize_acyl_resonance
 from ._engine import type_perception
 from ._perception import perceive
 from ._rules import RuleSet, parse
@@ -71,9 +72,15 @@ def type_v5(source: str | Path | Chem.Mol) -> V5Result:
     appended. Check is_complete: no matching branch returns None and a reason on
     that atom. Invalid structures, radicals, nonconvergence, circular dependencies
     and conflicting alternating numbers raise AutoCGENFFError. Formal charges are
-    from the sanitized input, not partial charges or DSL charge actions.
+    from the prepared graph after local amide/ester pi-pair normalization, not
+    partial charges or DSL charge actions.
     """
-    return _type_prepared(prepare_molecule(source))
+    return _type_prepared(_prepare_v5(source))
+
+
+def _prepare_v5(source: str | Path | Chem.Mol) -> Chem.Mol:
+    """Return the independent explicit-H graph shared by both v5 entry points."""
+    return normalize_acyl_resonance(prepare_molecule(source))
 
 
 def _type_prepared(molecule: Chem.Mol) -> V5Result:

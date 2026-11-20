@@ -56,6 +56,8 @@ END
     "row",
     [
         "A B 1 2 !<% NaN %>!",
+        "A B C 2 !<% .1 %>!",
+        "A B 1 2 3 !<% .1 %>!",
         "A B 1 2 !<% 0 1 %>!",
         "A A 1 2 !<% .01 %>!",
         "A B 1 2 !<% 0",
@@ -80,6 +82,36 @@ def test_sub_and_leaf_actions_separate_from_input_and_partial_charges():
     # Equal and opposite unsupported seeds may not cancel between fragments.
     with pytest.raises(AutoCGENFFError, match="preserve formal charge"):
         parameterize_v5("[NH2-].[CH3+]", Path("absent"))
+
+
+@pytest.mark.parametrize(
+    ("bridged", "alternate", "carbon_type"),
+    [
+        ("CC(N)=[N+](C)C=N", "CC(=[NH2+])N(C)C=N", "CG2N2"),
+        ("NC(N)=[N+](C)C(=N)N", "NC(=[NH2+])N(C)C(=N)N", "CG2N1"),
+    ],
+)
+def test_amidinium_seed_requires_the_double_bonded_nitrogen_to_be_positive(
+    bridged: str, alternate: str, carbon_type: str
+) -> None:
+    for smiles in (bridged, alternate):
+        result = type_v5(smiles)
+        assert result.is_complete
+        assert result.types[1] == result.types[5] == carbon_type
+        assert [(a.index, a.rule_charge) for a in result.atoms if a.rule_charge] == [(1, 1)]
+
+
+def test_distinct_positive_nitrogens_keep_both_carbon_seeds() -> None:
+    result = type_v5("C(=[NH2+])NC(=[NH2+])N")
+    assert result.is_complete
+    assert result.types[0] == "CG2N2" and result.types[3] == "CG2N1"
+    assert [(a.index, a.rule_charge) for a in result.atoms if a.rule_charge] == [(0, 1), (3, 1)]
+
+
+@pytest.mark.parametrize("smiles", ["C=[N+]=C", "CC(N)=[N+]=C"])
+def test_cumulene_seed_overlap_still_refuses_assignment(smiles: str) -> None:
+    with pytest.raises(AutoCGENFFError, match="preserve formal charge"):
+        parameterize_v5(smiles, Path("absent"))
 
 
 @pytest.mark.parametrize(
@@ -263,13 +295,24 @@ def test_live_neopentyl_alcohol_transfers_by_observed_analogy(local):
         )
 
 
-def test_live_linear_omissions_do_not_hide_missing_increments_or_lone_pairs(local):
+def test_live_linear_center_paths_transfer_nothing_and_lone_pairs_stay_unresolved(local):
+    assert local.charges.linear_centers == {"CG1N1", "CG1T1", "CG1T2"}
+    # The carbon-bound azide N is also NG1T1 but bent; its torsions stay ordinary paths.
+    azide = parameterize_v5("CN=[N+]=[N-]", local)
+    assert all(
+        t.status != "linear_not_applicable" for t in azide.charge_diagnostics.terms
+    )
     r = parameterize_v5("CC#N", local)
-    assert not r.is_complete and len(r.omitted_linear_propers) == 3
+    assert r.is_complete and len(r.omitted_linear_propers) == 3
     assert not any(t.term.kind == Kind.PROPER for t in r.terms)
     assert {t.term for t in r.omitted_linear_propers} == {
-        t.term for t in r.charge_diagnostics.terms if t.status == "missing"
+        t.term for t in r.charge_diagnostics.terms if t.status == "linear_not_applicable"
     }
+    assert all(t.status != "missing" for t in r.charge_diagnostics.terms)
+    # Same values as the published ACN residue.
+    assert [a.partial_charge for a in r.atoms] == pytest.approx(
+        (-0.17, 0.36, -0.46, 0.09, 0.09, 0.09)
+    )
     for smiles in ("c1ccccc1I", "CCCl"):
         r = parameterize_v5(smiles, local)
         assert not r.is_complete and any("lone-pair" in issue for issue in r.issues)
@@ -294,6 +337,84 @@ def test_linear_center_exact_multiterm_precedes_omission_and_not_wildcard(tmp_pa
     propers = [t for t in r.terms if t.term.kind == Kind.PROPER]
     assert len(propers) == (3 if use_exact else 0)
     assert all(t.status == "exact" and len(t.match.records) == 2 for t in propers)
+
+
+@pytest.mark.parametrize(
+    ("annotation", "status", "expected"),
+    [
+        (None, "missing", None),
+        ("N/A", "not_applicable", (0, 0, 0, 0, 0, 0)),
+        (".01 .02 .03", "exact", (-.03, -.03, .09, -.01, -.01, -.01)),
+    ],
+)
+def test_linear_mechanical_omission_does_not_decide_charge_transfer(
+    tmp_path: Path,
+    annotation: str | None,
+    status: str,
+    expected: tuple[float, ...] | None,
+) -> None:
+    prm = """BONDS
+HGA3 CG331 1 2 !<% N/A %>!
+CG331 CG1N1 1 2 !<% N/A %>!
+CG1N1 NG1T1 1 2 !<% N/A %>!
+ANGLES
+HGA3 CG331 HGA3 3 4 !<% N/A %>!
+HGA3 CG331 CG1N1 3 4 !<% N/A %>!
+CG331 CG1N1 NG1T1 3 4 !<% N/A %>!
+"""
+    increments = prm
+    if annotation is not None:
+        increments += f"DIHEDRALS\nHGA3 CG331 CG1N1 NG1T1 5 1 0 !<% {annotation} %>!\n"
+    (tmp_path / "par_all36_cgenff.prm").write_text(prm + "END\n", encoding="utf-8")
+    (tmp_path / "top_all36_cgenff.rtf").write_text("RESI SYN 0\nEND\n", encoding="utf-8")
+    (tmp_path / "par_all36_cgenff_increments.prm").write_text(increments + "END\n", encoding="utf-8")
+    result = parameterize_v5("CC#N", tmp_path)
+    omitted = {item.term for item in result.omitted_linear_propers}
+    assert len(omitted) == 3
+    proper_charges = [
+        item for item in result.charge_diagnostics.terms if item.term.kind == Kind.PROPER
+    ]
+    assert {item.term for item in proper_charges} == omitted
+    assert all(item.status == status for item in proper_charges)
+    if expected is None:
+        assert result.charge_diagnostics.charges is None
+    else:
+        assert result.charge_diagnostics.charges == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("evidence", "linear_status"),
+    [
+        (None, "missing"),
+        ("N/A", "linear_not_applicable"),
+        (".01 .02 .03", "missing"),  # one numeric sp-center row disables the rule
+        ("N/A unannotated", "missing"),  # so does a row without an increment field
+    ],
+)
+def test_unlisted_sp_center_paths_follow_native_na_rows_only(
+    tmp_path: Path, evidence: str | None, linear_status: str
+) -> None:
+    increments = "BONDS\nHGA3 CG331 1 2 !<% N/A %>!\n"
+    if evidence is not None:
+        # Other sp-center torsion rows; CCC#N itself has no proper rows.
+        increments += "DIHEDRALS\nCG2R61 CG2R61 CG1N1 NG1T1 5 1 0 !<% "
+        increments += evidence.removesuffix(" unannotated") + " %>!\n"
+        if evidence.endswith("unannotated"):
+            increments += "CG321 SG311 CG1N1 NG1T1 5 1 0\n"
+    (tmp_path / "par_all36_cgenff.prm").write_text(
+        "BONDS\nHGA3 CG331 322 1.111\nEND\n", encoding="utf-8"
+    )
+    (tmp_path / "top_all36_cgenff.rtf").write_text("RESI SYN 0\nEND\n", encoding="utf-8")
+    (tmp_path / "par_all36_cgenff_increments.prm").write_text(increments + "END\n", encoding="utf-8")
+    result = parameterize_v5("CCC#N", tmp_path)
+    statuses = {}
+    for item in result.charge_diagnostics.terms:
+        if item.term.kind == Kind.PROPER:
+            center = set(item.target_types[1:3])
+            statuses.setdefault("CG1N1" in center, set()).add(item.status)
+    # A terminal sp atom does not make the torsion undefined.
+    assert statuses == {True: {linear_status}, False: {"missing"}}
+    assert result.charge_diagnostics.charges is None
 
 
 def test_improper_ambiguous_orders_never_choose_by_atom_index(tmp_path):

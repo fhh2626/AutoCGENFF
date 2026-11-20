@@ -16,7 +16,10 @@ Extensions (not in P-I; SPEC 5.5 lists them):
   inring [class] [s]   the last bond traversed by `ne` lies in a ring of that class and/or size
   type PATTERN  the atom's own type (typed on demand) matches a glob pattern, e.g. `type CG2R6*`
   rmember class [s] (g)   some atom of one of the atom's rings of that class/size satisfies g
+  rne class [s] (g) ...   like ne, but all matched bonds must be on the perimeter of a single ring of that class/size
   fusion        bridgehead whose rings (SPEC 5.2 ring list) share a bond or bridge, i.e. not a spiro atom
+  iminium_charge   charge 1 sourced from a double-bonded iminium N, not from the atom itself
+  guanidinium_ring_imine   neutral five-ring imine role with a witnessed guanidinium charge source
 Ring keywords without a size match any size. Ring class keywords: ring3 (all sp3), ring2 (all sp2), arom, ring23
 (mixed), ring (any).
 """
@@ -45,6 +48,7 @@ class Rule:
     altnum: bool = False
     line: int = 0
     category: str = ""
+    iminium_charge: bool = False
 
     def __str__(self):
         return f"{self.category}:{self.line} {self.action} {self.target}"
@@ -123,7 +127,8 @@ class _Parser:
         items, opts = self.items(until=")")
         if opts:
             self.error(
-                "actions (charge, impr, warn, err, altnum) are only allowed at the top level of a rule"
+                "actions (charge, iminium_charge, impr, warn, err, altnum) are only allowed "
+                "at the top level of a rule"
             )
         self.take()
         return items
@@ -148,7 +153,7 @@ class _Parser:
             kw = self.take()
             if kw == "el":
                 conds.append(("el", self.take()))
-            elif kw in ("elha", "elos", "self", "fusion"):
+            elif kw in ("elha", "elos", "self", "fusion", "guanidinium_ring_imine"):
                 conds.append((kw,))
             elif kw in _INT_ARG:
                 conds.append((kw, self.take_int(kw)))
@@ -157,12 +162,15 @@ class _Parser:
             elif kw == "inring":
                 cls = RING_CLASSES[self.take()] if self.peek() in RING_CLASSES else None
                 conds.append(("inring", cls, self.optional_size()))
-            elif kw == "rmember":
+            elif kw in ("rmember", "rne"):
                 c = self.take()
                 if c not in RING_CLASSES:
-                    self.error(f"'rmember' needs a ring class, got {c!r}")
+                    self.error(f"'{kw}' needs a ring class, got {c!r}")
                 size = self.optional_size()
-                conds.append(("rmember", RING_CLASSES[c], size, self.group()))
+                groups = self.group() if kw == "rmember" else self.groups()
+                if kw == "rne" and len(groups) > 2:
+                    self.error("'rne' accepts at most two ring-neighbor groups")
+                conds.append((kw, RING_CLASSES[c], size, groups))
             elif kw == "type":
                 conds.append(("type", self.take()))
             elif kw == "ne":
@@ -175,8 +183,11 @@ class _Parser:
                 if kw[1:] not in self.macros:
                     self.error(f"undefined macro {kw}")
                 conds.extend(self.macros[kw[1:]])
-            elif kw == "charge":
-                opts["charge"] = self.take_int(kw)
+            elif kw in ("charge", "iminium_charge"):
+                if "charge" in opts:
+                    self.error("only one charge action is allowed per rule")
+                opts["charge"] = 1 if kw == "iminium_charge" else self.take_int(kw)
+                opts["iminium_charge"] = kw == "iminium_charge"
             elif kw in ("impr", "altnum"):
                 opts[kw] = True
             elif kw in ("warn", "err"):
@@ -227,6 +238,7 @@ def parse(text: str, source: str = "") -> RuleSet:
                 opts.get("altnum", False),
                 line,
                 cat,
+                iminium_charge=opts.get("iminium_charge", False),
             )
             categories[cat].append(rule)
             if head == "sub":

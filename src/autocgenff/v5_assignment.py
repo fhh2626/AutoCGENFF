@@ -12,13 +12,17 @@ from .analogy import PenaltyModel
 from .assignment import AssignedTerm, _lookup_term
 from .charges import ChargeModel, ChargeResult, assign_charges, formal_baseline
 from .errors import AutoCGENFFError
-from .molecule import Kind, Term, inventory, prepare_molecule
+from .molecule import Kind, Term, inventory
 from .parameters import ParameterRecord, Parameters, Types, read_parameters
 from .topology import Topology, improper_source_centers, read_topology
-from .v5 import _type_prepared
-from .v5_inputs import SubstitutionEvidence, observed_alkyl_model, read_native_increments
+from .v5 import _prepare_v5, _type_prepared
+from .v5_inputs import (
+    LINEAR_CENTERS,
+    SubstitutionEvidence,
+    observed_alkyl_model,
+    read_native_increments,
+)
 
-_LINEAR = frozenset({"CG1N1", "CG1T1", "CG1T2"})
 # These host types have LONEPAIR declarations in the local v5 RTF. CLGA1
 # and BRGA1 also occur without a site: type alone cannot choose the model.
 _LP_HOSTS = frozenset({"CLGR1", "BRGR1", "IGR1", "CLGA1", "BRGA1"})
@@ -193,8 +197,11 @@ def parameterize_v5(
     Pass a directory (and optional external increments_path), or reuse a loaded
     V5ForceField. Inspect is_complete and issues before use. Malformed inputs,
     unsupported typing or inconsistent rule charge seeds raise AutoCGENFFError.
+    As in type_v5, localized amide and ester pi pairs are normalized to their
+    neutral carbonyl contributor. Rule charge seeds must still sum to the
+    formal charge of each connected component before parameter lookup.
     """
-    molecule = prepare_molecule(source)
+    molecule = _prepare_v5(source)
     typed = _type_prepared(molecule)
     if not typed.is_complete:
         details = [
@@ -217,7 +224,7 @@ def parameterize_v5(
     cache = {}
     for term in (*real_paths, *(Term(Kind.NONBONDED, (i,)) for i in range(len(types)))):
         key = tuple(types[i] for i in term.atoms)
-        if term.kind == Kind.PROPER and _LINEAR.intersection(key[1:3]):
+        if term.kind == Kind.PROPER and LINEAR_CENTERS.intersection(key[1:3]):
             native = ff.parameters.match(term.kind, key)
             if native is None or native.wildcard:
                 omitted.append(AssignedTerm(term, key, "undefined_linear_proper"))

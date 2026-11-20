@@ -10,10 +10,13 @@ from .analogy import PenaltyModel
 from .charges import ChargeModel, reverse_increments
 from .errors import AutoCGENFFError
 from .molecule import Kind
-from .parameters import _SECTIONS, Parameters
+from .parameters import _SECTIONS, _SHAPES, Parameters
 
 _FIELD = re.compile(r"!\s*<%\s*(.*?)\s*%>\s*!")
-_ORDERS = {Kind.BOND: 2, Kind.ANGLE: 3, Kind.PROPER: 4}
+_INCREMENT_KINDS = (Kind.BOND, Kind.ANGLE, Kind.PROPER)
+# sp carbon types. A central torsion atom of these types lies on a 180 degree angle.
+# NG1T1 is excluded: it also types the bent, carbon-bound N of an organic azide.
+LINEAR_CENTERS = frozenset({"CG1N1", "CG1T1", "CG1T2"})
 
 
 def read_native_increments(path: Path) -> ChargeModel:
@@ -21,12 +24,16 @@ def read_native_increments(path: Path) -> ChargeModel:
 
     Missing fields are unresolved. Later Fourier components never introduce
     additional transfers. N/A is an observed noncontribution, distinct from zero.
+    If at least one proper row has an sp carbon in a central position and every
+    such row is annotated N/A, unlisted paths of this kind transfer nothing too.
+    A numeric or unannotated row of this kind disables this rule.
     Raises AutoCGENFFError for malformed or conflicting annotations.
     """
     entries = {}
     rows = {}
     seen = set()
-    order = None
+    shape = None
+    unannotated_linear = False
     with path.open(encoding="utf-8-sig") as handle:
         for number, line in enumerate(handle, 1):
             fields = line.partition("!")[0].upper().split()
@@ -36,10 +43,12 @@ def read_native_increments(path: Path) -> ChargeModel:
             if head == "END":
                 break
             if head in _SECTIONS or head in {"ATOMS", "CMAP", "HBOND", "THOLE"}:
-                order = _ORDERS.get(_SECTIONS.get(head))
+                kind = _SECTIONS.get(head)
+                shape = _SHAPES[kind] if kind in _INCREMENT_KINDS else None
                 continue
-            if order is None:
+            if shape is None:
                 continue
+            order, widths = shape
             types = tuple(fields[:order])
             key = min(types, types[::-1])
             duplicate = key in seen
@@ -48,8 +57,15 @@ def read_native_increments(path: Path) -> ChargeModel:
             if m is None:
                 if "<%" in line or "%>" in line:
                     raise AutoCGENFFError(f"{path}:{number}: malformed increment delimiter")
+                if order == 4 and LINEAR_CENTERS.intersection(types[1:3]):
+                    unannotated_linear = True
                 continue
             try:
+                columns = fields[order:]
+                if len(columns) not in widths or not all(
+                    isfinite(float(value.replace("D", "E"))) for value in columns
+                ):
+                    raise ValueError("invalid parameter columns preceding increment annotation")
                 body = m.group(1).strip().upper()
                 values = (
                     None
@@ -57,8 +73,7 @@ def read_native_increments(path: Path) -> ChargeModel:
                     else tuple(float(x.replace("D", "E")) for x in body.split())
                 )
                 if (
-                    len(fields) <= order
-                    or "X" in key
+                    "X" in key
                     or (
                         values is not None
                         and (len(values) != order - 1 or not all(map(isfinite, values)))
@@ -78,7 +93,15 @@ def read_native_increments(path: Path) -> ChargeModel:
                 raise AutoCGENFFError(f"{path}:{number}: {types}: {exc}") from exc
     if not entries:
         raise AutoCGENFFError(f"No native v5 increment annotations in {path}")
-    return ChargeModel(entries, source_rows=rows, infer_identical_bonds=False)
+    linear = [
+        values for key, values in entries.items()
+        if len(key) == 4 and LINEAR_CENTERS.intersection(key[1:3])
+    ]
+    native_na = linear and all(v is None for v in linear) and not unannotated_linear
+    centers = LINEAR_CENTERS if native_na else frozenset()
+    return ChargeModel(
+        entries, source_rows=rows, infer_identical_bonds=False, linear_centers=centers
+    )
 
 
 # Conservative local-v1 analogy profile. Limit inference to substitutions within
@@ -111,7 +134,7 @@ def observed_alkyl_model(
     """
     selected = {
         group[0].line: (kind, group[0].types)
-        for kind in _ORDERS
+        for kind in _INCREMENT_KINDS
         for group in parameters.iter_groups(kind)
     }
     observed = defaultdict(lambda: defaultdict(list))
