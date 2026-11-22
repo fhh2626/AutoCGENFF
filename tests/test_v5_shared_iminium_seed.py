@@ -23,11 +23,11 @@ from autocgenff.v5._rules import parse
             (1, 4),
         ),
         (
-            # The second C=N at the non-owner end is neutral and cannot match the seed rule.
+            # The non-owner cumulene carbon has two neighbors and no improper.
             "NC(N)=[N+]=C=NC",
             "NG2P1 CG2N1 NG2P1 NG2P1 CG2N2 NG2P1 CG334 " + "HGP2 " * 4 + "HGA3 " * 3,
             3,
-            (1, 4),
+            (1,),
         ),
         (
             "NC1=[N+]=CC2CCCN12",
@@ -74,9 +74,8 @@ def test_unique_guanidinium_owns_seed_independently_of_atom_type(
         assert [a.improper_center for a in typed.atoms] == [i in impropers for i in permutation]
         assigned = parameterize_v5(permuted, tmp_path)
         assert [a.partial_charge for a in assigned.atoms] == expected_seed
-        # A two-neighbor atom can carry the typing flag but cannot form a four-atom improper.
         assert {t.term.atoms[0] for t in assigned.terms if t.term.kind == Kind.IMPROPER} == {
-            permutation.index(i) for i in impropers if molecule.GetAtomWithIdx(i).GetDegree() == 3
+            permutation.index(i) for i in impropers
         }
         for typed_atom, assigned_atom in zip(typed.atoms, assigned.atoms, strict=True):
             assert assigned_atom.atom_type == typed_atom.atom_type

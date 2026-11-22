@@ -79,6 +79,8 @@ def test_named_increment_and_path_crosscheck(name, smiles, names, force_field, i
         "c1ccncc1",
         "O=C=O",
         "CC(C)(C)CO",
+        "Clc1ccc(C(C)(C)CO)cc1",  # both LPH and analogy additions
+        "Brc1ccccc1I",  # two sites with distinct distances
         *(s for _, s, _ in EXTRA),
     ],
 )
@@ -104,12 +106,22 @@ def test_psfgen_load_actual_stream_and_compare_entire_psf(smiles, force_field, t
         if "!" in line
     }
     n, start = sections["NATOM"]
-    assert n == len(result.atoms)
+    sites = [(a.name, a.atom_type, a.partial_charge, a.mass) for a in result.atoms]
+    sites.extend((lp.name, lp.atom_type, lp.charge, 0.0) for lp in result.lone_pairs)
+    assert n == len(sites)
     parsed = [line.split() for line in lines[start : start + n]]
-    for atom, row in zip(result.atoms, parsed, strict=True):
-        assert int(row[0]) == atom.index + 1 and row[3:6] == ["LIG", atom.name, atom.atom_type]
-        assert float(row[6]) == pytest.approx(atom.partial_charge, abs=5.1e-7)
-        assert float(row[7]) == pytest.approx(atom.mass, abs=5.1e-5)
+    for i, ((name, atom_type, charge, mass), row) in enumerate(zip(sites, parsed, strict=True), 1):
+        assert int(row[0]) == i and row[3:6] == ["LIG", name, atom_type]
+        assert float(row[6]) == pytest.approx(charge, abs=5.1e-7)
+        assert float(row[7]) == pytest.approx(mass, abs=5.1e-5)
+    if result.lone_pairs:
+        count, start = sections["NUMLP NUMLPH"]
+        assert count == len(result.lone_pairs)
+        hosts = " ".join(lines[start + count :]).split()[: 3 * count]
+        for i, lp in enumerate(result.lone_pairs):
+            assert float(lines[start + i].split()[3]) == pytest.approx(lp.distance)
+            ids = list(map(int, hosts[3 * i : 3 * i + 3]))
+            assert ids == [len(result.atoms) + i + 1, lp.host + 1, lp.anchor + 1]
     assert fsum(float(row[6]) for row in parsed) == pytest.approx(
         sum(a.formal_charge for a in result.atoms), abs=1e-5
     )
@@ -128,6 +140,9 @@ def test_psfgen_load_actual_stream_and_compare_entire_psf(smiles, force_field, t
         assert len(values) == count * arity
         psf_paths = [tuple(values[i : i + arity]) for i in range(0, len(values), arity)]
         expected = [t.term.atoms for t in result.terms if t.term.kind == kind]
+        if kind == Kind.BOND:
+            # psfgen records the LP-to-host link in NBOND, outside the covalent inventory.
+            expected.extend((lp.host, len(result.atoms) + i) for i, lp in enumerate(result.lone_pairs))
         if kind != Kind.IMPROPER:
             psf_paths = [min(p, p[::-1]) for p in psf_paths]
         assert Counter(psf_paths) == Counter(expected)

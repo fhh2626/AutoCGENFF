@@ -6,7 +6,7 @@ from pathlib import Path
 
 from rdkit import Chem
 
-from .analogy import PenaltyModel, best_analogy
+from .analogy import CandidateIndex, PenaltyModel, best_analogy
 from .charges import ChargeModel, ChargeResult, assign_charges
 from .errors import AutoCGENFFError
 from .molecule import Kind, Term, inventory, prepare_molecule
@@ -246,6 +246,24 @@ def _lookup_term(
     if kind == Kind.IMPROPER and (center is None or not source_centers):
         return "missing", None, None
     candidates = (records[0].types for records in parameters.iter_groups(kind))
+    if kind == Kind.IMPROPER:
+        index = parameters.cached_improper_analogy_index(
+            center,
+            source_centers,
+            lambda: CandidateIndex(
+                kind,
+                (records[0].types for records in parameters.iter_groups(kind)),
+                improper_center=center,
+                source_improper_centers=source_centers,
+            ),
+        )
+    else:
+        index = parameters.cached_analogy_index(
+            kind,
+            lambda: CandidateIndex(
+                kind, (records[0].types for records in parameters.iter_groups(kind))
+            ),
+        )
     analogy = best_analogy(
         kind,
         key,
@@ -253,6 +271,7 @@ def _lookup_term(
         penalties,
         improper_center=center,
         source_improper_centers=source_centers,
+        candidate_index=index,
     )
     if analogy is None:
         return "missing", None, None

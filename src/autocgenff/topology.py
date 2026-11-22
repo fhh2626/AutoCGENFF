@@ -25,6 +25,17 @@ class TemplateAtom:
     charge: float
 
 
+@dataclass(frozen=True, slots=True)
+class TemplateLonePair:
+    """One collinear virtual lone-pair site declared in an RTF residue."""
+
+    name: str
+    host: str
+    anchor: str
+    distance: float
+    scale: float = 0.0
+
+
 @dataclass(slots=True)
 class Residue:
     """Parsed residue topology; not a generated or patched CHARMM residue."""
@@ -39,6 +50,7 @@ class Residue:
     angles: list[NamePath] = field(default_factory=list)
     propers: list[NamePath] = field(default_factory=list)
     impropers: list[NamePath] = field(default_factory=list)
+    lone_pairs: list[TemplateLonePair] = field(default_factory=list)
     unsupported: set[str] = field(default_factory=set)
     first_patch: str | None = None
     last_patch: str | None = None
@@ -204,8 +216,43 @@ def _read_directive(residue: Residue, head: str, args: list[str]) -> None:
         residue.first_patch, residue.last_patch = _patch_names(
             args, residue.first_patch, residue.last_patch
         )
+    elif head in {"LONE", "LONEPAIR"}:
+        lp = _parse_colinear_lonepair(args)
+        if lp is None:
+            residue.unsupported.add("LONEPAIR")
+        else:
+            residue.lone_pairs.append(lp)
     elif head not in _RTF_NOT_TERMS:
         residue.unsupported.add(head)
+
+
+def _parse_colinear_lonepair(args: list[str]) -> TemplateLonePair | None:
+    if len(args) < 6 or not args[0].startswith("COLI"):
+        return None
+    name, host, anchor = args[1], args[2], args[3]
+    rest = args[4:]
+    if len(rest) % 2:
+        return None
+    distance: float | None = None
+    scale: float | None = None
+    for idx in range(0, len(rest), 2):
+        key, val = rest[idx], rest[idx + 1]
+        num = float(val)
+        if not isfinite(num):
+            return None
+        if key.startswith("DIST"):
+            if distance is not None:
+                return None
+            distance = num
+        elif key.startswith("SCAL"):
+            if scale is not None:
+                return None
+            scale = num
+        else:
+            return None
+    if distance is None or distance <= 0:
+        return None
+    return TemplateLonePair(name, host, anchor, distance, 0.0 if scale is None else scale)
 
 
 def _chunks(args: list[str], size: int) -> list[NamePath]:
@@ -233,8 +280,9 @@ def match_template(
     residue = topology.residues.get(name.upper())
     if residue is None:
         raise AutoCGENFFError(f"Unknown RTF residue {name!r} in {topology.source}")
-    if residue.unsupported or residue.patches:
-        features = ", ".join(sorted(residue.unsupported | set(residue.patches)))
+    if residue.unsupported or residue.patches or residue.lone_pairs:
+        extra = {"LONEPAIR"} if residue.lone_pairs else set()
+        features = ", ".join(sorted(residue.unsupported | set(residue.patches) | extra))
         raise AutoCGENFFError(
             f"RTF residue {residue.name} requires unsupported topology: {features}"
         )

@@ -4,10 +4,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from math import fsum, isclose, isfinite, sqrt
 from types import MappingProxyType
+from weakref import finalize
 
 from rdkit import Chem
 
-from .analogy import PenaltyModel, best_analogy
+from .analogy import CandidateIndex, PenaltyModel, best_analogy
 from .errors import AutoCGENFFError
 from .molecule import Kind, Term, _valid_indices
 from .parameters import Types
@@ -22,7 +23,7 @@ def reverse_increments(values: tuple[float, ...]) -> tuple[float, ...]:
     return tuple(-value for value in reversed(values))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class ChargeModel:
     """Explicit increment table in elementary charges; no implicit fitted data.
 
@@ -198,6 +199,31 @@ def assign_charges(
     return ChargeResult(charges, tuple(sqrt(fsum(values)) for values in errors), tuple(matches))
 
 
+_CHARGE_INDICES: dict[int, dict[tuple[Kind, bool], CandidateIndex]] = {}
+
+
+def _charge_index(model: ChargeModel, kind: Kind, palindromic: bool) -> CandidateIndex:
+    model_id = id(model)
+    per_model = _CHARGE_INDICES.get(model_id)
+    if per_model is None:
+        per_model = {}
+        _CHARGE_INDICES[model_id] = per_model
+        finalize(model, _CHARGE_INDICES.pop, model_id, None)
+    cache_key = (kind, palindromic)
+    index = per_model.get(cache_key)
+    if index is None:
+        order = PATH_ORDER[kind]
+        keys = (
+            key
+            for key, values in model.increments.items()
+            if len(key) == order
+            and (not palindromic or values is None or values == reverse_increments(values))
+        )
+        index = CandidateIndex(kind, keys)
+        per_model[cache_key] = index
+    return index
+
+
 def _match_increment(
     kind: Kind, requested: Types, model: ChargeModel, penalties: PenaltyModel | None
 ) -> tuple[Types | None, tuple[float, ...] | None, float | None, str, bool]:
@@ -216,12 +242,11 @@ def _match_increment(
         return None, None, 0.0, "linear_not_applicable", False
     if penalties is None:
         return None, None, None, "missing", False
-    candidates = (
-        key
-        for key, values in model.increments.items()
-        if target != target[::-1] or values is None or values == reverse_increments(values)
+    palindromic = target == target[::-1]
+    index = _charge_index(model, kind, palindromic)
+    candidate = best_analogy(
+        kind, target, (), penalties, for_charge=True, candidate_index=index
     )
-    candidate = best_analogy(kind, target, candidates, penalties, for_charge=True)
     if candidate is None:
         return None, None, None, "missing", False
     reverse = candidate.reversed != target_reversed

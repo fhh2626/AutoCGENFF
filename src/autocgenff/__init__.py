@@ -1,6 +1,6 @@
 """Independent CGenFF-inspired typing, parameter and charge diagnostics."""
 
-from .analogy import BondGroup, PenaltyModel
+from .analogy import BondGroup, FallbackModel, PenaltyModel
 from .assignment import AssignmentOptions, AssignmentResult, parameterize
 from .charges import ChargeModel
 from .errors import AutoCGENFFError
@@ -8,7 +8,7 @@ from .molecule import prepare_molecule
 from .parameters import read_parameters
 from .topology import read_topology
 from .typing import TypingRule
-from .v5_assignment import V5Assignment, V5ForceField, parameterize_v5
+from .v5_assignment import LonePair, V5Assignment, V5ForceField, parameterize_v5
 from .v5_stream import write_v5_stream
 
 __all__ = [
@@ -17,6 +17,8 @@ __all__ = [
     "AutoCGENFFError",
     "BondGroup",
     "ChargeModel",
+    "FallbackModel",
+    "LonePair",
     "PenaltyModel",
     "TypingRule",
     "V5Assignment",

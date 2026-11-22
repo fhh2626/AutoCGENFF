@@ -1,14 +1,18 @@
 """Read and match an additive CHARMM parameter file, retaining source lines."""
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from math import isfinite
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .errors import AutoCGENFFError
 from .molecule import Kind
+
+if TYPE_CHECKING:
+    from .analogy import CandidateIndex
 
 Types = tuple[str, ...]
 
@@ -200,6 +204,8 @@ class Parameters:
             kind: tuple(group for group in groups.values() if "X" in group[0].types)
             for kind, groups in self._entries.items()
         }
+        self._analogy_indices: dict[Kind, CandidateIndex] = {}
+        self._improper_index_cache: tuple[int | None, dict[Types, int], CandidateIndex] | None = None
         if Kind.IMPROPER in self._wildcards:
             self._wildcards[Kind.IMPROPER] = tuple(
                 sorted(
@@ -211,6 +217,30 @@ class Parameters:
     def iter_groups(self, kind: Kind) -> Iterator[tuple[ParameterRecord, ...]]:
         """Iterate parsed record groups in input order."""
         yield from self._entries.get(kind, {}).values()
+
+    def cached_analogy_index(
+        self, kind: Kind, builder: Callable[[], "CandidateIndex"]
+    ) -> "CandidateIndex":
+        """Return a cached CandidateIndex for a non-improper parameter kind."""
+        cached = self._analogy_indices.get(kind)
+        if cached is None:
+            cached = builder()
+            self._analogy_indices[kind] = cached
+        return cached
+
+    def cached_improper_analogy_index(
+        self,
+        improper_center: int | None,
+        source_centers: Mapping[Types, int],
+        builder: Callable[[], "CandidateIndex"],
+    ) -> "CandidateIndex":
+        """Return a cached improper CandidateIndex validated against source_centers."""
+        cached = self._improper_index_cache
+        if cached is not None and cached[0] == improper_center and cached[1] == source_centers:
+            return cached[2]
+        index = builder()
+        self._improper_index_cache = (improper_center, dict(source_centers), index)
+        return index
 
     def match(self, kind: Kind, types: Types) -> ParameterMatch | None:
         """Use exact then wildcard matches, except NBFIX uses last applicable row."""

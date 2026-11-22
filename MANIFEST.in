@@ -1,7 +1,11 @@
-include environment.yml
-include docs/local-v5.md docs/b1-train-protocol.md
-include tools/score_v5_b1.py tools/score_v5_b1_split.py tools/b1_structure.py
+include environment.yml src/_build_commands.py
+include docs/local-v5.md docs/b1-train-protocol.md docs/benchmark-local.md
+include tools/score_v5_b1.py tools/score_v5_b1_split.py tools/b1_structure.py tools/benchmark_v5_local.py
 recursive-include tests *.py
 recursive-include examples *.json
-exclude ci300363c.pdf ci3003649.pdf ChinFo_python_vibe_coding_guide.md
+global-exclude *.pdf *.py[cod] ChinFo_python_vibe_coding_guide.md
+prune .pi
 prune force_fields
+prune benchmark_local
+prune dist
+prune src/autocgenff.egg-info

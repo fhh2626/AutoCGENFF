@@ -4,6 +4,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import permutations
+from math import isclose, remainder
 from pathlib import Path
 
 from rdkit import Chem
@@ -19,13 +20,19 @@ from .v5 import _prepare_v5, _type_prepared
 from .v5_inputs import (
     LINEAR_CENTERS,
     SubstitutionEvidence,
-    observed_alkyl_model,
+    observed_v5_penalty_model,
     read_native_increments,
 )
 
-# These host types have LONEPAIR declarations in the local v5 RTF. CLGA1
-# and BRGA1 also occur without a site: type alone cannot choose the model.
-_LP_HOSTS = frozenset({"CLGR1", "BRGR1", "IGR1", "CLGA1", "BRGA1"})
+# CGenFF 5.0 collinear sigma-hole lone pairs for aromatic halogens
+# (Gutierrez et al., J. Chem. Theory Comput. 2016, 12, 4633; top_all36_cgenff.rtf).
+_HALOGEN_LONE_PAIR_DISTANCES: Mapping[str, float] = {
+    "CLGR1": 1.64,
+    "BRGR1": 1.89,
+    "IGR1": 2.20,
+}
+_HALOGEN_LONE_PAIR_TYPE = "LPH"
+_HALOGEN_LONE_PAIR_CHARGE = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +66,7 @@ class V5ForceField:
             charges = read_native_increments(path)
             parameters = read_parameters(directory / "par_all36_cgenff.prm")
             topology = read_topology(directory / "top_all36_cgenff.rtf")
-            penalties, evidence = observed_alkyl_model(parameters)
+            penalties, evidence = observed_v5_penalty_model(parameters, topology)
         except (OSError, UnicodeError) as exc:
             raise AutoCGENFFError(f"Cannot load local v5 force field: {exc}") from exc
         return cls(
@@ -100,8 +107,21 @@ class V5Bond:
 
 
 @dataclass(frozen=True, slots=True)
+class LonePair:
+    """Collinear virtual lone-pair site attached to an aromatic halogen atom."""
+
+    name: str
+    atom_type: str
+    host: int
+    anchor: int
+    distance: float
+    charge: float
+    scale: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class V5Assignment:
-    """Real atoms, required mechanical inventory, omissions and independent charge paths."""
+    """Real atoms, virtual lone pairs, required mechanical inventory and charge paths."""
 
     atoms: tuple[V5AssignedAtom, ...]
     bonds: tuple[V5Bond, ...]
@@ -113,12 +133,28 @@ class V5Assignment:
     topology_source: str
     charge_source: str
     issues: tuple[str, ...]
-    substitution_profile: str = "local-v1/observed-acyclic-alkyl (provisional)"
+    substitution_profile: str = "local-v2/observed-cgenff-v5 (provisional)"
+    lone_pairs: tuple[LonePair, ...] = ()
 
     @property
     def is_complete(self) -> bool:
         """Assigned relative to these local models; not a quality guarantee."""
         return not self.issues and all(term.match is not None for term in self.terms)
+
+
+def _is_even_improper(term: AssignedTerm) -> bool:
+    """True when negating the signed improper angle psi leaves energy unchanged."""
+    if term.match is None:
+        return False
+    for record in term.match.records:
+        _, multiplicity, psi0 = record.values
+        if multiplicity == 0:
+            if not isclose(psi0, 0.0, rel_tol=0.0, abs_tol=1e-9):
+                return False
+        # A periodic improper uses cos(n * psi - phase), not cos(n * (psi - phase)).
+        elif not isclose(remainder(psi0, 180.0), 0.0, rel_tol=0.0, abs_tol=1e-9):
+            return False
+    return True
 
 
 def _resolve_improper(
@@ -127,14 +163,17 @@ def _resolve_improper(
     """Try center-first permutations; prefer exact, then wildcard, then analogy.
 
     Equal type sequences differing only by like-typed neighbors use index order.
-    Different equally good sequences are not resolved by an arbitrary sort.
+    Competing potentials remain ambiguous. Identical parameters can be resolved
+    by topology evidence, the native forward order, or an energy-invariant J/K swap.
     """
     candidates = {}
+    seen = set()
     for outer in permutations(sorted(neighbors)):
         path = (center, *outer)
         key = tuple(types[i] for i in path)
-        if key in candidates or ff.improper_centers.get(key) == 3:
+        if key in seen or ff.improper_centers.get(key) == 3:
             continue
+        seen.add(key)
         status, penalty, match = _lookup_term(
             ff.parameters, Kind.IMPROPER, key, ff.penalties, 0, ff.improper_centers
         )
@@ -152,9 +191,25 @@ def _resolve_improper(
 
     best_rank = min(map(rank, candidates.values()))
     best = [t for t in candidates.values() if rank(t) == best_rank]
-    if len(best) > 1:
-        return AssignedTerm(default_term, key, "ambiguous_improper_order")
-    return best[0]
+    if len(best) == 1:
+        return best[0]
+    values = {tuple(row.values for row in t.match.records) for t in best}
+    if len(values) == 1:
+        declared = [t for t in best if ff.improper_centers.get(t.target_types) == 0]
+        if len(declared) == 1:
+            return declared[0]
+        if all(_is_even_improper(t) for t in best):
+            if len({t.target_types[3] for t in best}) == 1:
+                return min(best, key=lambda t: t.target_types)
+            # For equivalent oxygens, native RTF and PRM can give both a forward
+            # center-first order and a reverse-listed order with the same potential.
+            forward = [
+                t for t in declared
+                if t.status == "exact" and not any(t.match.record_reversed)
+            ]
+            if len(declared) == len(best) and len(forward) == 1:
+                return forward[0]
+    return AssignedTerm(default_term, key, "ambiguous_improper_order")
 
 
 def _atom_names(molecule: Chem.Mol) -> list[str]:
@@ -195,11 +250,13 @@ def parameterize_v5(
     """Type and assign a ligand with native local v5 force-field files, without a template.
 
     Pass a directory (and optional external increments_path), or reuse a loaded
-    V5ForceField. Inspect is_complete and issues before use. Malformed inputs,
-    unsupported typing or inconsistent rule charge seeds raise AutoCGENFFError.
-    As in type_v5, localized amide and ester pi pairs are normalized to their
-    neutral carbonyl contributor. Rule charge seeds must still sum to the
-    formal charge of each connected component before parameter lookup.
+    V5ForceField. Inspect is_complete, issues and lone_pairs before use. Malformed
+    inputs, unsupported typing or inconsistent rule charge seeds raise
+    AutoCGENFFError. As in type_v5, localized amide and ester pi pairs are
+    normalized to their neutral carbonyl contributor. Rule charge seeds must
+    still sum to the formal charge of each connected component before parameter
+    lookup. Aromatic halogens (CLGR1, BRGR1, IGR1) receive collinear LPH virtual
+    lone-pair sites when LPH is defined in the supplied base files.
     """
     molecule = _prepare_v5(source)
     typed = _type_prepared(molecule)
@@ -255,13 +312,49 @@ def parameterize_v5(
     )
     if charges.charges is None:
         issues.append("Unresolved native charge increments (see charge_diagnostics.terms)")
-    lp_hosts = tuple(i for i, label in enumerate(types) if label in _LP_HOSTS)
-    if lp_hosts:
-        issues.append(
-            f"Unresolved halogen lone-pair representation at {lp_hosts}; cannot export real-atom charges as site charges"
-        )
-    atoms = []
     names = _atom_names(molecule)
+    used_names = {name.upper() for name in names}
+    lone_pairs: list[LonePair] = []
+    lp_charge_shift: dict[int, float] = {}
+    lp_error = False
+    lp_index = 1
+    for i, label in enumerate(types):
+        distance = _HALOGEN_LONE_PAIR_DISTANCES.get(label)
+        if distance is None:
+            continue
+        neighbors = tuple(n.GetIdx() for n in molecule.GetAtomWithIdx(i).GetNeighbors())
+        if len(neighbors) != 1:
+            issues.append(
+                f"Halogen lone-pair host atom {i} ({label}) requires 1 neighbor, found {len(neighbors)}"
+            )
+            lp_error = True
+            continue
+        lph_mass = ff.topology.masses.get(_HALOGEN_LONE_PAIR_TYPE)
+        lph_nb = ff.parameters.match(Kind.NONBONDED, (_HALOGEN_LONE_PAIR_TYPE,))
+        if lph_mass is None or lph_mass != 0.0 or lph_nb is None:
+            issues.append(
+                f"Missing {_HALOGEN_LONE_PAIR_TYPE} mass or nonbonded entry for halogen lone-pair site at atom {i} ({label})"
+            )
+            lp_error = True
+            continue
+        while f"LP{lp_index}" in used_names:
+            lp_index += 1
+        lp_name = f"LP{lp_index}"
+        lp_index += 1
+        used_names.add(lp_name)
+        lone_pairs.append(
+            LonePair(
+                name=lp_name,
+                atom_type=_HALOGEN_LONE_PAIR_TYPE,
+                host=i,
+                anchor=neighbors[0],
+                distance=distance,
+                charge=_HALOGEN_LONE_PAIR_CHARGE,
+                scale=0.0,
+            )
+        )
+        lp_charge_shift[i] = lp_charge_shift.get(i, 0.0) + _HALOGEN_LONE_PAIR_CHARGE
+    atoms = []
     for atom, label in zip(typed.atoms, types, strict=True):
         mass = ff.topology.masses.get(label)
         if (
@@ -272,6 +365,11 @@ def parameterize_v5(
             issues.append(f"Missing or inconsistent RTF MASS for atom {atom.index} ({label})")
         if molecule.GetAtomWithIdx(atom.index).GetIsotope():
             issues.append(f"Explicit isotope at atom {atom.index} not represented by the base MASS")
+        site_charge = (
+            None
+            if lp_error or charges.charges is None
+            else charges.charges[atom.index] - lp_charge_shift.get(atom.index, 0.0)
+        )
         atoms.append(
             V5AssignedAtom(
                 atom.index,
@@ -284,9 +382,9 @@ def parameterize_v5(
                 atom.trace,
                 atom.warnings,
                 mass,
-                None if lp_hosts or charges.charges is None else charges.charges[atom.index],
+                site_charge,
                 None
-                if lp_hosts or charges.atom_penalties is None
+                if lp_error or charges.atom_penalties is None
                 else charges.atom_penalties[atom.index],
             )
         )
@@ -296,15 +394,17 @@ def parameterize_v5(
             i, j = term.atoms
             bond = molecule.GetBondBetweenAtoms(i, j)
             bonds.append(V5Bond((i, j), int(bond.GetBondTypeAsDouble())))
+    all_types = (*types, *(lp.atom_type for lp in lone_pairs))
     return V5Assignment(
         tuple(atoms),
         tuple(bonds),
         tuple(required),
         tuple(omitted),
         charges,
-        ff.parameters.nbfix_for(types),
+        ff.parameters.nbfix_for(all_types),
         str(ff.parameters.source),
         str(ff.topology.source),
         str(ff.increments_path),
         tuple(issues),
+        lone_pairs=tuple(lone_pairs),
     )

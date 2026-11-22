@@ -12,6 +12,11 @@ def nitro    ( el N ne ( el O ) ( el O ) )                       # nitro / N-oxi
 def cation   ( fc 1 ! ( ne ( fc -1 ) ) )                         # positive atom that is not half of a zwitterion pair
 def catring  ( or ( rmember arom ( @cation ) ) ( rmember ring2 ( @cation ) ) )
 def carbonyl ( el C ne ( bo 2 elos ) )                           # C=O / C=S carbon (ring or not)
+# Acyclic deprotonated monoamides, excluding imides and acyl-on-N heteroatoms.
+# These predicates are evaluated from one of the two partners of the C-N bond.
+def amidateTail ( or ( el H ) ( el C ! ( ne ( bo 2 elos ) ) ) )
+def amidateAcyl ( el C fc 0 deg 3 ! ( ring ) ne ( bo 2 el O fc 0 deg 1 ) ( bo 1 or ( el C ) ( el H ) ) )
+def amidateImidic ( el C fc 0 deg 3 ! ( ring ) ne ( bo 1 el O fc -1 deg 1 ) ( bo 1 or ( el C ) ( el H ) ) )
 # Ketone carbon, viewed from a terminal O through its C=O bond.
 def ketoneC  ( el C bo 2 ne ( bo 1 el C ) ( bo 1 el C ) )
 # amidinium carbon, seen from one of its N (that N is not revisited): another N is =N+, or this N is =N and another
@@ -59,8 +64,9 @@ typ CG2R71 : ne ( bo 2 ) rmember arom 7 ( @planar5 arom 7 )      # incl. its C=O
 typ CG25C? : ring 5 deg 3 ne ( bo 2 el O ) ( inring 5 el C ne ( bo 2 inring 5 el N ne ( inring 5 el O ) ) ) ( inring 5 el C ) altnum
 # B1 train 23002G: five-ring fusion C participating in the seven-ring C=N-N=C unit.
 typ CG2R51 : fusion ring 5 ring 7 ne ( bo 2 inring 7 el N ne ( inring 7 el N ne ( bo 2 el C ) ) )
-sub CGO   : deg 2 ne ( el O bo 2 ) ( bo 2 )                     # linear O=C=X (CO2, MICY): no third neighbor
+sub CGO   : deg 2 ne ( bo 2 or ( elos ) ( el Se ) ) ( bo 2 )    # linear cumulene: no third neighbor for an improper
 sub CGO   : ne ( bo 2 or ( elos ) ( el Se ) ! ( inring ) ) impr # carbonyl / thiocarbonyl / selone (exocyclic)
+sub CG2   : deg 2 ne ( bo 2 ) ( bo 2 )                          # other cumulenes, including N=C=N
 # impropers (SPEC 5.13): the three P-I Fig. 5 conditions, as pass-through routes before the plain one
 sub CG2   : ne ( ! ( inring ) bo 2 el N ) impr                    # exocyclic C=N
 sub CG2   : ne ( bo 2 el N ) ( ! ( inring ) bo 1 el N ) impr      # amidine with an exocyclic N
@@ -213,6 +219,7 @@ sub NG2D   : ne ( bo 2 )
 typ NG2R52 : ring 5 ne ( @amidC )
 typ NG2P1  : ne ( @amidC )
 typ NG2P1  : ! ( ring ) ! ( nh 0 ) ne ( el C arom 6 ne ( inring el N fc 1 ) )   # exocyclic N-H of such a ring amidinium
+typ NG2D1  : fc -1 deg 2 ne ( bo 1 @amidateAcyl ) ( bo 1 @amidateTail ) charge -1
 sub NGAM   : ne ( @carbonyl )
 typ NG2S3  : ne ( el P )                                       # phosphoramidate
 typ NG2S3  : ne ( el S ne ( el O nb 1 ) )                      # sulfamate (2300NR, NMSM)
@@ -270,6 +277,7 @@ typ NG2R50 : guanidinium_ring_imine
 typ NG2R52 : ring 5 @posN ne ( bo 2 inring 5 )                # (exocyclic C=N+: NG2P1, 2300YF)
 typ NG2P1  : @posN ! ( fc 0 ne ( bo 2 el C ne ( el N fc 0 ! ( ne ( bo 2 ) ) ) ) )
 typ NG2R50 : ne ( bo 2 inring 5 )
+typ NG2D1  : fc 0 deg 2 ne ( bo 2 @amidateImidic ) ( bo 1 @amidateTail ) charge -1
 typ NG2D1  :
 end
 
@@ -298,16 +306,20 @@ end
 
 cat OG30
 typ OG304 : ne ( or ( el P ) ( el S ) ) ( or ( el P ) ( el S ) )
+# Neutral R-S-O-O peroxide oxygen, distinct from sulfate/phosphate ester O.
+typ OG301 : fc 0 deg 2 ne ( bo 1 el S fc 0 deg 2 ne ( bo 1 el C ) ) ( bo 1 el O fc 0 deg 2 )
 typ OG303 :
 end
 
 cat OGD
 sub OGDC  : ne ( el C )
 typ OG2D1 : deg 1 fc 0 ne ( bo 2 el N deg 2 fc 0 ne ( bo 1 el C fc 0 ) )  # neutral C-nitroso O
+typ OG2D1 : deg 1 fc 0 ne ( bo 2 el N deg 2 fc 0 ne ( bo 1 el S fc 0 deg 2 ne ( bo 1 el C ) ) )  # S-nitrosothiol O
 typ OG2N1 : ne ( el N or ( ne ( el O ) ) ( bo 2 ) )              # nitro and other N=O (legacy)
 typ OG312 : ne ( el N ) charge -1                               # N-oxide O- (TMAO)
 typ OG2D2 : ne ( el B ) charge -1                               # boronate O-
 typ OG2S1 : ne ( el P ne ( el S ) )                             # thiophosphate O
+typ OG312 : fc -1 deg 1 ne ( bo 1 el S fc 0 deg 2 ne ( bo 1 el C ) ) charge -1  # terminal sulfenate O
 typ OG2P1 : ne ( or ( el P ) ( el S ) )
 typ OG2D1 :
 end
@@ -336,7 +348,7 @@ typ SG3O2  : ne ( el O ) ( el O )
 typ SG3O3  : ne ( el O ) ( @heavy ) ( @heavy )
 typ SG2D1  : ne ( bo 2 el C )
 typ SG302  : fc -1 charge -1
-typ SG301  : ne ( or ( el S ) ( el O ) )
+typ SG301  : nh 0 ne ( or ( el S ) ( el O ) )                  # keep terminal S-H in SG311
 typ SG311  :
 end
 

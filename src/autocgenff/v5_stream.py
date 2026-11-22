@@ -38,10 +38,15 @@ def _validate_names(result: V5Assignment, residue_name: str) -> None:
                 f"Invalid, duplicate or unordered CHARMM atom name at {i}: {atom.name!r}"
             )
         used.add(atom.name.upper())
+    for lp in result.lone_pairs:
+        if not _NAME.fullmatch(lp.name) or lp.name.upper() in used:
+            raise AutoCGENFFError(f"Invalid or duplicate lone-pair atom name: {lp.name!r}")
+        used.add(lp.name.upper())
 
 
 def _rtf_text(result: V5Assignment, residue_name: str) -> str:
     atoms = result.atoms
+    lone_pairs = result.lone_pairs
     charge = sum(a.formal_charge for a in atoms)
     lines = [
         "read rtf card append",
@@ -52,14 +57,31 @@ def _rtf_text(result: V5Assignment, residue_name: str) -> str:
         f"RESI {residue_name} {charge}",
         "GROUP",
     ]
-    if result.charge_diagnostics.charges != tuple(a.partial_charge for a in atoms):
+    lp_shifts = {}
+    for lp in lone_pairs:
+        if (
+            any(type(i) is not int or not 0 <= i < len(atoms) for i in (lp.host, lp.anchor))
+            or lp.host == lp.anchor
+        ):
+            raise AutoCGENFFError(f"Invalid lone-pair indices in {lp}")
+        if not isfinite(lp.charge) or not isfinite(lp.distance) or lp.distance <= 0 or not isfinite(lp.scale):
+            raise AutoCGENFFError(f"Invalid lone-pair geometry or charge in {lp}")
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", lp.atom_type):
+            raise AutoCGENFFError(f"Invalid CHARMM lone-pair atom type {lp.atom_type!r}")
+        lp_shifts[lp.host] = lp_shifts.get(lp.host, 0.0) + lp.charge
+    raw_charges = result.charge_diagnostics.charges
+    if raw_charges is None or len(raw_charges) != len(atoms):
         raise AutoCGENFFError("Atom and increment charges disagree")
-    for a in atoms:
+    for a, raw_q in zip(atoms, raw_charges, strict=True):
         if a.partial_charge is None or not isfinite(a.partial_charge):
             raise AutoCGENFFError(f"Invalid charge at {a.index}")
+        if not isclose(a.partial_charge + lp_shifts.get(a.index, 0.0), raw_q, rel_tol=0.0, abs_tol=1e-12):
+            raise AutoCGENFFError("Atom and increment charges disagree")
         if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", a.atom_type):
             raise AutoCGENFFError(f"Invalid CHARMM atom type {a.atom_type!r}")
         lines.append(f"ATOM {a.name} {a.atom_type} {a.partial_charge!r}")
+    for lp in lone_pairs:
+        lines.append(f"ATOM {lp.name} {lp.atom_type} {lp.charge!r}")
     edges = set()
     for bond in result.bonds:
         i, j = bond.atoms
@@ -74,6 +96,13 @@ def _rtf_text(result: V5Assignment, residue_name: str) -> str:
             raise AutoCGENFFError(f"Parameter target disagrees with atoms in {t.term}")
         if t.term.kind == Kind.IMPROPER:
             lines.append("IMPR " + " ".join(atoms[i].name for i in t.term.atoms))
+    for lp in lone_pairs:
+        if tuple(sorted((lp.host, lp.anchor))) not in edges:
+            raise AutoCGENFFError(f"Lone-pair host {lp.host} is not bonded to anchor {lp.anchor}")
+        lines.append(
+            f"LONEPAIR COLINEAR {lp.name} {atoms[lp.host].name} {atoms[lp.anchor].name} "
+            f"DIST {lp.distance!r} SCALE {lp.scale!r}"
+        )
     lines.extend(["PATCH FIRST NONE LAST NONE", "END", ""])
     return "\n".join(lines)
 
@@ -81,16 +110,31 @@ def _rtf_text(result: V5Assignment, residue_name: str) -> str:
 def _check_residue(res: Residue, result: V5Assignment) -> None:
     """Reconstruct the AUTO inventory from serialized names and connectivity."""
     atoms = result.atoms
+    lone_pairs = result.lone_pairs
     names = {a.name.upper(): a.index for a in atoms}
+    expected_names = [*names, *(lp.name.upper() for lp in lone_pairs)]
+    expected_types = [*(a.atom_type for a in atoms), *(lp.atom_type for lp in lone_pairs)]
+    expected_charges = [*(a.partial_charge for a in atoms), *(lp.charge for lp in lone_pairs)]
     if (
-        [a.name for a in res.atoms] != list(names)
-        or [a.atom_type for a in res.atoms] != [a.atom_type for a in atoms]
-        or [a.charge for a in res.atoms] != [a.partial_charge for a in atoms]
+        [a.name for a in res.atoms] != expected_names
+        or [a.atom_type for a in res.atoms] != expected_types
+        or [a.charge for a in res.atoms] != expected_charges
         or res.unsupported
         or res.patches
         or not (res.auto_angles and res.auto_propers)
     ):
         raise AutoCGENFFError("Serialized topology changes atoms or generation directives")
+    if len(res.lone_pairs) != len(lone_pairs) or any(
+        (
+            parsed.name != lp.name.upper()
+            or parsed.host != atoms[lp.host].name.upper()
+            or parsed.anchor != atoms[lp.anchor].name.upper()
+            or not isclose(parsed.distance, lp.distance, rel_tol=0.0, abs_tol=1e-6)
+            or not isclose(parsed.scale, lp.scale, rel_tol=0.0, abs_tol=1e-6)
+        )
+        for parsed, lp in zip(res.lone_pairs, lone_pairs, strict=True)
+    ):
+        raise AutoCGENFFError("Serialized lone-pair definitions disagree with assignment")
     if res.charge != sum(a.formal_charge for a in atoms) or not isclose(
         fsum(a.charge for a in res.atoms), res.charge, rel_tol=0, abs_tol=1e-7
     ):
@@ -101,6 +145,8 @@ def _check_residue(res: Residue, result: V5Assignment) -> None:
         rd_atom.SetFormalCharge(atom.formal_charge)
         rd_atom.SetNoImplicit(True)
         graph.AddAtom(rd_atom)
+    if any(a not in names or b not in names for a, b in res.bonds):
+        raise AutoCGENFFError("Serialized bond references unknown or lone-pair atom")
     edges = {tuple(sorted((names[a], names[b]))): order for (a, b), order in res.bonds.items()}
     if edges != {b.atoms: b.order for b in result.bonds}:
         raise AutoCGENFFError("Serialized bond orders or connectivity changed")
@@ -217,10 +263,14 @@ def write_v5_stream(result: V5Assignment, path: Path, *, residue_name: str = "LI
         ):
             raise AutoCGENFFError(f"Incompatible base MASS for {a.atom_type}")
     base = read_parameters(Path(result.parameter_source))
-    if (
-        base.unsupported_sections
-        or base.nbfix_for(tuple(a.atom_type for a in result.atoms)) != result.nbfix
-    ):
+    for lp in result.lone_pairs:
+        if (
+            base_rtf.masses.get(lp.atom_type) != 0.0
+            or base.match(Kind.NONBONDED, (lp.atom_type,)) is None
+        ):
+            raise AutoCGENFFError(f"Incompatible base MASS or NONBONDED for {lp.atom_type}")
+    all_types = (*(a.atom_type for a in result.atoms), *(lp.atom_type for lp in result.lone_pairs))
+    if base.unsupported_sections or base.nbfix_for(all_types) != result.nbfix:
         raise AutoCGENFFError("Incompatible base PRM sections or NBFIX overrides")
     rtf = _rtf_text(result, residue_name)
     groups = _delta(result, base)
