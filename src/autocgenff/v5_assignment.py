@@ -65,20 +65,24 @@ class V5ForceField:
         increments_path takes precedence over the adjacent conventional filename.
         Missing or malformed files raise AutoCGENFFError.
         """
-        directory = (
-            bundled_force_field_dir() if directory is None else Path(directory).resolve()
-        )
-        path = (
-            Path(increments_path).resolve()
-            if increments_path is not None
-            else directory / "par_all36_cgenff_increments.prm"
-        )
         try:
+            if isinstance(directory, str) and not directory.strip():
+                raise AutoCGENFFError("Force-field directory path cannot be empty")
+            if isinstance(increments_path, str) and not increments_path.strip():
+                raise AutoCGENFFError("Increments path cannot be empty")
+            base_dir = (
+                bundled_force_field_dir() if directory is None else Path(directory).resolve()
+            )
+            path = (
+                Path(increments_path).resolve()
+                if increments_path is not None
+                else base_dir / "par_all36_cgenff_increments.prm"
+            )
             charges = read_native_increments(path)
-            parameters = read_parameters(directory / "par_all36_cgenff.prm")
-            topology = read_topology(directory / "top_all36_cgenff.rtf")
+            parameters = read_parameters(base_dir / "par_all36_cgenff.prm")
+            topology = read_topology(base_dir / "top_all36_cgenff.rtf")
             penalties, evidence = observed_v5_penalty_model(parameters, topology)
-        except (OSError, UnicodeError) as exc:
+        except (TypeError, OSError, UnicodeError) as exc:
             raise AutoCGENFFError(f"Cannot load local v5 force field: {exc}") from exc
         return cls(
             parameters,

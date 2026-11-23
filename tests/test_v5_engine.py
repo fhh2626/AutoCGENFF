@@ -35,13 +35,15 @@ EXTRA = [
 
 @pytest.fixture(scope="module")
 def force_field():
-    directory = Path(
-        os.environ.get("AUTOCGENFF_V5_DIR", bundled_force_field_dir())
-    )
-    inc = Path(
-        os.environ.get("AUTOCGENFF_V5_INCREMENTS", directory / "par_all36_cgenff_increments.prm")
-    )
-    if not inc.is_file() or not (directory / "top_all36_cgenff.rtf").is_file():
+    env_dir = os.environ.get("AUTOCGENFF_V5_DIR")
+    directory = Path(env_dir) if env_dir is not None else bundled_force_field_dir()
+    env_inc = os.environ.get("AUTOCGENFF_V5_INCREMENTS")
+    inc = Path(env_inc) if env_inc is not None else directory / "par_all36_cgenff_increments.prm"
+    if (
+        not inc.is_file()
+        or not (directory / "par_all36_cgenff.prm").is_file()
+        or not (directory / "top_all36_cgenff.rtf").is_file()
+    ):
         pytest.skip("requires local v5 inputs")
     return V5ForceField.from_directory(directory, increments_path=inc)
 

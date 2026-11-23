@@ -995,6 +995,11 @@ def test_bundled_force_fields_work_by_default_in_api_and_cli(capsys):
     assert main(["assign-v5", "--smiles", "CCO"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["is_complete"] is True
+    for bad_dir in ("", "   ", 123):
+        with pytest.raises(AutoCGENFFError):
+            V5ForceField.from_directory(bad_dir)
+    with pytest.raises(AutoCGENFFError):
+        V5ForceField.from_directory(increments_path="")
 
 
 def test_analogy_rejects_boolean_improper_center():

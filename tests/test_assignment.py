@@ -20,8 +20,6 @@ from autocgenff.cli import main
 from autocgenff.molecule import Kind
 from autocgenff.topology import improper_source_centers, match_template
 
-ROOT = Path(__file__).resolve().parents[1]
-
 
 @pytest.fixture
 def synthetic_forcefield(tmp_path: Path) -> tuple[Path, Path]:

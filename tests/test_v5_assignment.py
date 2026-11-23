@@ -20,8 +20,6 @@ from autocgenff.molecule import Kind, Term
 from autocgenff.v5 import type_v5
 from autocgenff.v5_inputs import read_native_increments
 
-ROOT = Path(__file__).resolve().parents[1]
-
 
 def test_native_reverse_multiterm_na_missing_and_zero(tmp_path):
     p = tmp_path / "test.prm"
@@ -144,11 +142,15 @@ def test_narrow_train_corrections_do_not_relabel_other_rings_or_open_azines():
 
 @pytest.fixture(scope="module")
 def local():
-    directory = Path(os.environ.get("AUTOCGENFF_V5_DIR", bundled_force_field_dir()))
-    inc = Path(
-        os.environ.get("AUTOCGENFF_V5_INCREMENTS", directory / "par_all36_cgenff_increments.prm")
-    )
-    if not inc.is_file() or not (directory / "top_all36_cgenff.rtf").is_file():
+    env_dir = os.environ.get("AUTOCGENFF_V5_DIR")
+    directory = Path(env_dir) if env_dir is not None else bundled_force_field_dir()
+    env_inc = os.environ.get("AUTOCGENFF_V5_INCREMENTS")
+    inc = Path(env_inc) if env_inc is not None else directory / "par_all36_cgenff_increments.prm"
+    if (
+        not inc.is_file()
+        or not (directory / "par_all36_cgenff.prm").is_file()
+        or not (directory / "top_all36_cgenff.rtf").is_file()
+    ):
         pytest.skip("supply local v5 PRM/RTF and AUTOCGENFF_V5_INCREMENTS")
     return V5ForceField.from_directory(directory, increments_path=inc)
 

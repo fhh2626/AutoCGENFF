@@ -36,4 +36,4 @@ Load the compatible base RTF and PRM before the stream, including any system for
 
 ## Validation commands
 
-Run the typing checks with `python -m pytest -q tests/test_v5.py tests/test_v5_reference.py`. For local parameter and export checks, set `AUTOCGENFF_V5_DIR` and, if needed, `AUTOCGENFF_V5_INCREMENTS`. Set `AUTOCGENFF_PSFGEN` to a psfgen executable for the optional PSF checks, then run `python -m pytest -q tests/test_v5_assignment.py tests/test_v5_engine.py`.
+Run the typing checks with `python -m pytest -q tests/test_v5.py tests/test_v5_reference.py`, and the parameter and export checks with `python -m pytest -q tests/test_v5_assignment.py tests/test_v5_engine.py`. Both use the bundled CGenFF 5.0 files by default; set `AUTOCGENFF_V5_DIR` and `AUTOCGENFF_V5_INCREMENTS` to override them, and set `AUTOCGENFF_PSFGEN` to a `psfgen` executable for optional PSF checks.
