@@ -1,0 +1,67 @@
+name: Build and publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_publish:
+        description: Confirm publishing this commit to production PyPI
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require production confirmation
+        if: ${{ !inputs.confirm_publish }}
+        run: |
+          echo "Production PyPI publishing was not confirmed." >&2
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build and check tools
+        run: python -m pip install --upgrade build setuptools wheel twine
+
+      - name: Read package version
+        run: |
+          version=$(python -c "import sys; sys.path.insert(0, 'src'); from autocgenff._version import __version__; print(__version__)")
+          echo "Building autocgenff $version"
+
+      - name: Build sdist and wheel
+        run: python -m build --no-isolation
+
+      - name: Check distributions
+        run: python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/*
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/autocgenff
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

@@ -8,7 +8,15 @@ dynamic = ["version"]
 description = "Independent CHARMM CGenFF-inspired small-molecule parameter diagnostics"
 readme = "README.md"
 requires-python = ">=3.11"
+authors = [
+  { name = "Haohao Fu", email = "fhh2626@gmail.com" },
+]
 dependencies = ["rdkit>=2023.9", "numpy>=1.24", "scipy>=1.10"]
+
+[project.urls]
+Homepage = "https://github.com/fhh2626/AutoCGENFF"
+Repository = "https://github.com/fhh2626/AutoCGENFF"
+Issues = "https://github.com/fhh2626/AutoCGENFF/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff", "build"]
