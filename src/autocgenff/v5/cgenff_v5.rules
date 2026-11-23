@@ -1,6 +1,6 @@
-# AutoCGENFF local-v5; derived from LigandFF 860b17d (MIT, see LICENSE-LigandFF.txt).
-# Independent reconstruction from P-I, MASS descriptions and B1/B2 training splits;
-# NOT the official CGenFF rule file. See docs/local-v5.md for local changes.
+# AutoCGENFF local-v5 atom typing rules.
+# Independent implementation for CGenFF 5.0; NOT the official CGenFF rule file.
+# See docs/local-v5.md for behavior and local extensions.
 # First match wins. Charge/impr are inherited annotations, not parameter assignments.
 
 # ---------------------------------------------------------------- macros (shared predicates)

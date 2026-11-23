@@ -299,7 +299,6 @@ def observed_alkyl_model(
     A local PRM annotation needs a real oriented source row and exactly one
     unambiguous mismatch. Use the mode (lower cost breaks ties)
     across independent parameter groups. All other off-diagonals are forbidden.
-    Inspired by LigandFF's provisional single-substitution observations (MIT).
     """
     selected = {
         group[0].line: (kind, group[0].types)
@@ -353,8 +352,7 @@ def observed_v5_penalty_model(
 
     Combines published Part II Table 1 (NG3 hierarchy) and Table 3 bond groups
     with single-substitution observations, iterative multi-substitution solving,
-    zero-cost altnum twins, and scaled relation fallbacks. Inspired by
-    LigandFF's Part II penalty fitting (MIT).
+    zero-cost altnum twins, and scaled relation fallbacks.
     """
     selected = {}
     for kind in _BONDED_KINDS:

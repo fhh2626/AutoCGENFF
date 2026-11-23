@@ -154,3 +154,39 @@ def test_cli_type_only_and_separate_from_assignment(capsys):
     ):
         assert main(args) == 2
         assert "error" in json.loads(capsys.readouterr().err)
+
+
+@pytest.mark.parametrize(
+    ("smiles", "expected"),
+    [
+        ("O=NCC", {0: "OG2D1", 1: "NG2D1"}),
+        ("C[N+](=O)[O-]", {1: "NG2O1", 2: "OG2N1", 3: "OG2N1"}),
+        ("C[N+](C)(C)[O-]", {4: "OG312"}),
+        ("O=C1NS(=O)(=O)C=C1", {1: "CG2R53", 2: "NG2R53"}),
+        ("O=C1N(C)C=CC1=O", {2: "NG2R51"}),
+        ("CC=C1CCCC1", {1: "CG2D1", 2: "CG2D1"}),
+        ("C=CC=C1CCCC1", {2: "CG2DC2", 3: "CG25C2"}),
+        ("C=C1CCCN1", {1: "CG251O"}),
+    ],
+)
+def test_selected_motif_typing(smiles: str, expected: dict[int, str]) -> None:
+    result = type_v5(smiles)
+    assert result.is_complete
+    assert {i: result.types[i] for i in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ("smiles", "index", "expected"),
+    [
+        ("CC1(C)CCCC(C)(C)[N+]1=O", 10, "OG2N1"),
+        ("C#CC=C1CCCC1", 3, "CG25C1"),
+        ("COC=C1CCCC1", 3, "CG25C1"),
+        ("c1ccccc1C=C2CCCC2", 7, "CG25C1"),
+        ("O=C1C=CC2N1S(=O)(=O)CC=2", 5, "NG2R51"),
+        ("O=C1C=CC2N1S(=O)(=O)C(=O)C=2", 5, "NG2R51"),
+        ("O=C1[N-]S(=O)(=O)C=C1", 2, "NG2R51"),
+        ("S=C1NS(=O)(=O)C=C1", 2, "NG2R51"),
+    ],
+)
+def test_neighboring_motif_typing(smiles: str, index: int, expected: str) -> None:
+    assert type_v5(smiles).types[index] == expected

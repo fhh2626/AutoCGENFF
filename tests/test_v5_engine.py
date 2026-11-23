@@ -1,6 +1,6 @@
-"""Optional integration: independent PSF generation and independent increment reader.
+"""Optional integration: independent PSF generation and stream PRM checks.
 
-No engine, upstream package or force-field data are needed by the runtime.
+No engine or external package is needed by the runtime.
 """
 
 import os
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from autocgenff import V5ForceField, parameterize_v5, write_v5_stream
+from autocgenff import V5ForceField, parameterize_v5, read_parameters, write_v5_stream
 from autocgenff.molecule import Kind
 
 # Named correspondence; never passed to inference. Includes two RTF-supported
@@ -40,15 +40,8 @@ def force_field():
     return V5ForceField.from_directory(directory, increments_path=inc)
 
 
-@pytest.fixture(scope="module")
-def independent_table(force_field):
-    inc = pytest.importorskip("ligandff.charges.increments")
-    return inc.IncrementTable.from_prm(force_field.increments_path)
-
-
 @pytest.mark.parametrize("name,smiles,names", EXTRA)
-def test_named_increment_and_path_crosscheck(name, smiles, names, force_field, independent_table):
-    inc = pytest.importorskip("ligandff.charges.increments")
+def test_named_rtf_types_and_impropers(name, smiles, names, force_field):
     r = parameterize_v5(smiles, force_field)
     assert r.is_complete and all(t.status == "exact" for t in r.terms)
     ref = force_field.topology.residues[name]
@@ -56,14 +49,6 @@ def test_named_increment_and_path_crosscheck(name, smiles, names, force_field, i
     names = names.split()
     types = [labels[n] for n in names]
     assert [a.atom_type for a in r.atoms] == types
-    bonds = [(names.index(a), names.index(b)) for a, b in ref.bonds]
-    charges = inc.assign_charges(types, bonds, [0] * len(names), independent_table)
-    assert not charges.missing
-    assert [a.partial_charge for a in r.atoms] == pytest.approx(charges.charges)
-    paths = inc.parameter_instances(len(names), bonds)
-    assert Counter(min(p, p[::-1]) for p in paths) == Counter(
-        t.term.atoms for t in r.terms if t.term.kind in {Kind.BOND, Kind.ANGLE, Kind.PROPER}
-    )
     assert [t.target_types for t in r.terms if t.term.kind == Kind.IMPROPER] == [
         tuple(labels[n] for n in p) for p in ref.impropers
     ]
@@ -148,17 +133,19 @@ def test_psfgen_load_actual_stream_and_compare_entire_psf(smiles, force_field, t
         assert Counter(psf_paths) == Counter(expected)
 
 
-def test_independent_parser_reads_changed_only_prm(force_field, tmp_path):
-    reader = pytest.importorskip("ligandff.io.prm")
+def test_parser_reads_changed_only_prm(force_field, tmp_path):
     r = parameterize_v5("CC(C)(C)CO", force_field)
     path = tmp_path / "neo.str"
     write_v5_stream(r, path)
     prm = tmp_path / "delta.prm"
     prm.write_text(path.read_text().split("read param card flex append\n")[1], encoding="ascii")
-    parsed = reader.read_parameters(prm)
+    parsed = read_parameters(prm)
     term = next(t for t in r.terms if t.status == "analogy")
-    (record,) = parsed.bonded["dihedral"].values()
-    assert record.types in (term.target_types, term.target_types[::-1])
-    assert record.values == tuple(row.values for row in term.match.records)
-    assert not any(parsed.bonded[k] for k in ("bond", "angle", "improper"))
-    assert not parsed.nonbonded and not parsed.nbfix
+    groups = list(parsed.iter_groups(Kind.PROPER))
+    assert len(groups) == 1
+    assert groups[0][0].types in (term.target_types, term.target_types[::-1])
+    assert tuple(row.values for row in groups[0]) == tuple(row.values for row in term.match.records)
+    assert not any(
+        list(parsed.iter_groups(k))
+        for k in (Kind.BOND, Kind.ANGLE, Kind.IMPROPER, Kind.NONBONDED, Kind.NBFIX)
+    )

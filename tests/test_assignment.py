@@ -199,8 +199,21 @@ def test_real_v5_2boh_does_not_verify_or_stereo_group(local_forcefield):
         )
 
 
-def test_real_v5_cli_caller_increment_example(local_forcefield, capsys):
+def test_real_v5_cli_caller_increment_model(local_forcefield, capsys, tmp_path):
     parameters, _ = local_forcefield
+    # Synthetic bond increments exercise the caller-supplied JSON interface.
+    model = {
+        "max_order": 2,
+        "entries": [
+            {"types": ["CG331", "CG321"], "values": [0.01]},
+            {"types": ["CG321", "OG311"], "values": [0.29]},
+            {"types": ["CG331", "HGA3"], "values": [0.08]},
+            {"types": ["CG321", "HGA2"], "values": [0.08]},
+            {"types": ["OG311", "HGP1"], "values": [0.39]},
+        ],
+    }
+    increments = tmp_path / "increments.json"
+    increments.write_text(json.dumps(model), encoding="utf-8")
     code = main(
         [
             "--prm",
@@ -209,7 +222,7 @@ def test_real_v5_cli_caller_increment_example(local_forcefield, capsys):
             "CCO",
             "--no-impropers",
             "--increments",
-            str(ROOT / "examples" / "ethanol-bond-increments.json"),
+            str(increments),
         ]
     )
     assert code == 0

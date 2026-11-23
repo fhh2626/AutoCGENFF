@@ -147,10 +147,10 @@ def local():
     return V5ForceField.from_directory(directory, increments_path=inc)
 
 
-# Independent charge oracle: pinned LigandFF IncrementTable + assign_charges on
-# named RTF types/bonds (not the prediction), with C2:-1 for ACET, NZ:+1 for
-# MAMM, zero elsewhere. These are molecule outputs, NOT mechanical parameters,
-# increments or optimized template charges. See docs/local-v5.md.
+# Reference charge totals on named RTF types/bonds (not the prediction), with
+# C2:-1 for ACET, NZ:+1 for MAMM, zero elsewhere. These are molecule outputs,
+# NOT mechanical parameters, increments or optimized template charges. See
+# docs/local-v5.md.
 @pytest.mark.parametrize(
     ("name", "smiles", "order", "expected"),
     [

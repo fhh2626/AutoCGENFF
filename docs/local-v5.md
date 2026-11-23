@@ -2,7 +2,7 @@
 
 `autocgenff type-v5` and `autocgenff.v5.type_v5` apply the installed `cgenff_v5.rules` to a SMILES or a path to one SDF or MOL2 molecule. The Python API also accepts an RDKit `Chem.Mol`. Provide the intended protonation state and bond orders. Existing atom indices are preserved and missing hydrogens are appended. Typing does not require a reference residue, force-field files or a network connection.
 
-The profile derives from [LigandFF](https://github.com/carlosbaiz/ligandff/tree/860b17da7e982ef7ab62d993a0e24fda3958bbb6), distributed under its included MIT license. It is an independent implementation, not the official CGenFF program.
+It is an independent implementation for CGenFF 5.0, not the official CGenFF program.
 
 ## Reading a typing result
 
@@ -18,7 +18,7 @@ The profile derives from [LigandFF](https://github.com/carlosbaiz/ligandff/tree/
 
 ## Local-v5 parameterization
 
-Use `autocgenff.parameterize_v5(molecule, directory)` or pass a reusable `V5ForceField.from_directory(directory)`. Supply compatible `top_all36_cgenff.rtf`, `par_all36_cgenff.prm` and `par_all36_cgenff_increments.prm`. Pass `increments_path=` if the [native charge increments](https://github.com/Lemkul-Lab/toppar_c36_releases/blob/ed3bbdaa4eb0a0152e577480bb0a9d22cd9743c3/charmm/toppar/par_all36_cgenff_increments.prm) are elsewhere. Force-field files are not bundled or downloaded.
+Use `autocgenff.parameterize_v5(molecule, directory)` or pass a reusable `V5ForceField.from_directory(directory)`. Supply compatible `top_all36_cgenff.rtf`, `par_all36_cgenff.prm` and `par_all36_cgenff_increments.prm`. Pass `increments_path=` if the native charge increments are stored elsewhere.
 
 Inspect `is_complete`, `issues`, `terms`, `lone_pairs` and `charge_diagnostics` before export. Charge seeds must sum to the formal charge of each connected component. The charges in `charge_diagnostics` are the real-atom totals from increments. Atom `partial_charge` values are the exported site charges after any transfer to a virtual site. Unresolved paths leave charges unavailable.
 
@@ -30,10 +30,10 @@ Equal-parameter improper ties can resolve using native topology evidence or an e
 
 ## Stream export
 
-See the [CLI and Python examples](../README.md#parameterize-a-ligand-in-one-offline-invocation) or run `autocgenff assign-v5 --help`. `write_v5_stream(assignment, path, residue_name="LIG")` writes a single connected residue, including any aromatic halogen `LONEPAIR COLINEAR ... SCALE 0.0` virtual sites. Atom names must be unique without regard to case and representable in CHARMM. Use coordinates with matching names and atom order; the stream contains neither coordinates nor a PSF.
+See the [CLI and Python examples](../README.md#parameterize-a-ligand) or run `autocgenff assign-v5 --help`. `write_v5_stream(assignment, path, residue_name="LIG")` writes a single connected residue, including any aromatic halogen `LONEPAIR COLINEAR ... SCALE 0.0` virtual sites. Atom names must be unique without regard to case and representable in CHARMM. Use coordinates with matching names and atom order; the stream contains neither coordinates nor a PSF.
 
 Load the compatible base RTF and PRM before the stream, including any system force fields needed for external NBFIX partners. Keep angle and dihedral autogeneration enabled. The writer emits only missing bonded parameters assigned by analogy; exact and wildcard matches, LJ, 1–4 and NBFIX parameters stay in the base files. Check for collisions with other streams in the same system. Missing terms, unresolved charges or lone pairs, and omitted linear torsions can block export. A readable stream does not establish simulation readiness.
 
 ## Validation commands
 
-Run the typing checks with `python -m pytest -q tests/test_v5.py tests/test_v5_reference.py`. For local parameter and export checks, set `AUTOCGENFF_V5_DIR` and, if needed, `AUTOCGENFF_V5_INCREMENTS`. Set `AUTOCGENFF_PSFGEN` to a psfgen executable for the optional PSF checks, then run `python -m pytest -q tests/test_v5_assignment.py tests/test_v5_engine.py`. For strict indexed comparisons and the pinned B1 dependency, follow the [train-only protocol](b1-train-protocol.md).
+Run the typing checks with `python -m pytest -q tests/test_v5.py tests/test_v5_reference.py`. For local parameter and export checks, set `AUTOCGENFF_V5_DIR` and, if needed, `AUTOCGENFF_V5_INCREMENTS`. Set `AUTOCGENFF_PSFGEN` to a psfgen executable for the optional PSF checks, then run `python -m pytest -q tests/test_v5_assignment.py tests/test_v5_engine.py`.

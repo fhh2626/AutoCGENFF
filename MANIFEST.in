@@ -1,8 +1,6 @@
 include environment.yml src/_build_commands.py
-include docs/local-v5.md docs/b1-train-protocol.md docs/benchmark-local.md
-include tools/score_v5_b1.py tools/score_v5_b1_split.py tools/b1_structure.py tools/benchmark_v5_local.py
+include docs/local-v5.md
 recursive-include tests *.py
-recursive-include examples *.json
 global-exclude *.pdf *.py[cod] ChinFo_python_vibe_coding_guide.md
 prune .pi
 prune force_fields

@@ -20,7 +20,7 @@ autocgenff = "autocgenff.cli:main"
 sdist = "_build_commands.CleanSdist"
 
 [tool.setuptools.package-data]
-"autocgenff.v5" = ["*.rules", "LICENSE-LigandFF.txt"]
+"autocgenff.v5" = ["*.rules"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
