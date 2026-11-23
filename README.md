@@ -51,14 +51,14 @@ autocgenff type-v5 --smiles 'CC(=O)N'
 
 ### Parameterize a ligand
 
-Assign neopentyl alcohol from its SMILES, write an additive CHARMM stream, and save the JSON report to a separate file:
+Assign neopentyl alcohol from its SMILES using the bundled CGenFF 5.0 force-field files, write an additive CHARMM stream, and save the JSON report to a separate file:
 
 ```sh
-autocgenff assign-v5 --smiles 'CC(C)(C)CO' --force-field force_fields \
+autocgenff assign-v5 --smiles 'CC(C)(C)CO' \
   --residue NPOL --stream neopentyl.str > neopentyl.json
 ```
 
-Pass `--increments /path/to/par_all36_cgenff_increments.prm` if the increment file is stored in another directory, or omit `--stream` to produce only the JSON report. Redirect stdout to a separate `.json` path rather than the input or stream file. Because a failed run can leave an older stream on disk, check the exit status before using the output.
+Pass `--force-field /path/to/dir` or `--increments /path/to/par_all36_cgenff_increments.prm` to use external files instead of the bundled defaults, or omit `--stream` to produce only the JSON report. Redirect stdout to a separate `.json` path rather than the input or stream file. Because a failed run can leave an older stream on disk, check the exit status before using the output.
 
 | Exit status | Meaning |
 | --- | --- |
@@ -68,14 +68,14 @@ Pass `--increments /path/to/par_all36_cgenff_increments.prm` if the increment fi
 
 ### Python API
 
-Load the force-field files once to reuse them across multiple ligands:
+Load the bundled CGenFF 5.0 force-field files once to reuse them across multiple ligands (or pass a custom directory to `from_directory`):
 
 ```python
 from pathlib import Path
 
 from autocgenff import V5ForceField, parameterize_v5, write_v5_stream
 
-force_field = V5ForceField.from_directory(Path("force_fields"))
+force_field = V5ForceField.from_directory()
 result = parameterize_v5("CC(C)(C)CO", force_field)
 if result.is_complete:
     write_v5_stream(result, Path("neopentyl.str"), residue_name="NPOL")
@@ -108,8 +108,8 @@ The test suite verifies atom typing, charge assignment, bonded analogy, and stre
 The legacy `parameterize` API and CLI can use a named local RTF template selected by the caller:
 
 ```sh
-autocgenff --prm force_fields/par_all36_cgenff.prm \
-  --rtf force_fields/top_all36_cgenff.rtf --smiles CCO --template ETOH
+autocgenff --prm src/autocgenff/force_fields/par_all36_cgenff.prm \
+  --rtf src/autocgenff/force_fields/top_all36_cgenff.rtf --smiles CCO --template ETOH
 ```
 
 For aromatic or charged reference residues, provide independently verified identity with `--template-smiles`. Where equivalent atoms cannot be distinguished by connectivity alone, pass a complete `--atom-map` JSON mapping RTF atom names to explicit atom indices. The legacy workflow also supports caller-supplied SMARTS rules, substitution penalties, and JSON charge increments (`--increments my-increments.json`) with `max_order` and `entries`. For example, `{"types":["A","B"],"values":[0.1]}` transfers 0.1 e from `A` to `B`. Run `autocgenff --help` for full options. Use `assign-v5` for native CGenFF 5.0 increments and checked stream export.

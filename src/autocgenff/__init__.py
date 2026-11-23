@@ -9,7 +9,13 @@ from .molecule import prepare_molecule
 from .parameters import read_parameters
 from .topology import read_topology
 from .typing import TypingRule
-from .v5_assignment import LonePair, V5Assignment, V5ForceField, parameterize_v5
+from .v5_assignment import (
+    LonePair,
+    V5Assignment,
+    V5ForceField,
+    bundled_force_field_dir,
+    parameterize_v5,
+)
 from .v5_stream import write_v5_stream
 
 __all__ = [
@@ -25,6 +31,7 @@ __all__ = [
     "V5Assignment",
     "V5ForceField",
     "__version__",
+    "bundled_force_field_dir",
     "parameterize",
     "parameterize_v5",
     "prepare_molecule",

@@ -3,7 +3,6 @@ include docs/local-v5.md
 recursive-include tests *.py
 global-exclude *.pdf *.py[cod] ChinFo_python_vibe_coding_guide.md
 prune .pi
-prune force_fields
 prune benchmark_local
 prune dist
 prune src/autocgenff.egg-info

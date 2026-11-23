@@ -35,6 +35,14 @@ _HALOGEN_LONE_PAIR_TYPE = "LPH"
 _HALOGEN_LONE_PAIR_CHARGE = 0.05
 
 
+def bundled_force_field_dir() -> Path:
+    """Return the directory containing the bundled CGenFF 5.0 force-field files."""
+    directory = Path(__file__).resolve().parent / "force_fields"
+    if not directory.is_dir():
+        raise AutoCGENFFError(f"Bundled force-field directory not found: {directory}")
+    return directory
+
+
 @dataclass(frozen=True, slots=True)
 class V5ForceField:
     """Reusable local input bundle; no ligand-specific templates are selected."""
@@ -49,14 +57,17 @@ class V5ForceField:
 
     @classmethod
     def from_directory(
-        cls, directory: Path, *, increments_path: Path | None = None
+        cls, directory: Path | None = None, *, increments_path: Path | None = None
     ) -> "V5ForceField":
-        """Load caller's local cgenff PRM, RTF and annotated v5 increment file.
+        """Load cgenff PRM, RTF and annotated v5 increment files.
 
-        An explicit increments_path takes precedence over the adjacent conventional
-        filename. Missing or malformed files raise AutoCGENFFError.
+        Uses the bundled CGenFF 5.0 files when directory is omitted. An explicit
+        increments_path takes precedence over the adjacent conventional filename.
+        Missing or malformed files raise AutoCGENFFError.
         """
-        directory = Path(directory).resolve()
+        directory = (
+            bundled_force_field_dir() if directory is None else Path(directory).resolve()
+        )
         path = (
             Path(increments_path).resolve()
             if increments_path is not None
@@ -243,13 +254,14 @@ def _atom_names(molecule: Chem.Mol) -> list[str]:
 
 def parameterize_v5(
     source: str | Path | Chem.Mol,
-    force_field: V5ForceField | Path,
+    force_field: V5ForceField | Path | None = None,
     *,
     increments_path: Path | None = None,
 ) -> V5Assignment:
     """Type and assign a ligand with native local v5 force-field files, without a template.
 
-    Pass a directory (and optional external increments_path), or reuse a loaded
+    Uses the bundled CGenFF 5.0 files when force_field is omitted, or pass a
+    directory (and optional external increments_path), or reuse a loaded
     V5ForceField. Inspect is_complete, issues and lone_pairs before use. Malformed
     inputs, unsupported typing or inconsistent rule charge seeds raise
     AutoCGENFFError. As in type_v5, localized amide and ester pi pairs are

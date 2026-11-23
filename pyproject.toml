@@ -33,6 +33,7 @@ sdist = "_build_commands.CleanSdist"
 version = {attr = "autocgenff._version.__version__"}
 
 [tool.setuptools.package-data]
+"autocgenff" = ["force_fields/*.prm", "force_fields/*.rtf", "force_fields/*.str"]
 "autocgenff.v5" = ["*.rules"]
 
 [tool.setuptools.packages.find]
@@ -44,7 +45,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["force_fields"]
+extend-exclude = ["src/autocgenff/force_fields"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]

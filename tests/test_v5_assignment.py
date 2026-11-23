@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 from rdkit import Chem
 
-from autocgenff import AutoCGENFFError, V5ForceField, parameterize_v5, write_v5_stream
+from autocgenff import (
+    AutoCGENFFError,
+    V5ForceField,
+    bundled_force_field_dir,
+    parameterize_v5,
+    write_v5_stream,
+)
 from autocgenff.charges import assign_charges
 from autocgenff.molecule import Kind, Term
 from autocgenff.v5 import type_v5
@@ -138,7 +144,7 @@ def test_narrow_train_corrections_do_not_relabel_other_rings_or_open_azines():
 
 @pytest.fixture(scope="module")
 def local():
-    directory = Path(os.environ.get("AUTOCGENFF_V5_DIR", ROOT / "force_fields"))
+    directory = Path(os.environ.get("AUTOCGENFF_V5_DIR", bundled_force_field_dir()))
     inc = Path(
         os.environ.get("AUTOCGENFF_V5_INCREMENTS", directory / "par_all36_cgenff_increments.prm")
     )

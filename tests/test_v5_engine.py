@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from autocgenff import V5ForceField, parameterize_v5, read_parameters, write_v5_stream
+from autocgenff import (
+    V5ForceField,
+    bundled_force_field_dir,
+    parameterize_v5,
+    read_parameters,
+    write_v5_stream,
+)
 from autocgenff.molecule import Kind
 
 # Named correspondence; never passed to inference. Includes two RTF-supported
@@ -30,7 +36,7 @@ EXTRA = [
 @pytest.fixture(scope="module")
 def force_field():
     directory = Path(
-        os.environ.get("AUTOCGENFF_V5_DIR", Path(__file__).resolve().parents[1] / "force_fields")
+        os.environ.get("AUTOCGENFF_V5_DIR", bundled_force_field_dir())
     )
     inc = Path(
         os.environ.get("AUTOCGENFF_V5_INCREMENTS", directory / "par_all36_cgenff_increments.prm")

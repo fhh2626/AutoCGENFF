@@ -1,7 +1,6 @@
 """Regression fixtures for the parser, assignment and CLI review findings."""
 
 import json
-from pathlib import Path
 
 import pytest
 from rdkit import Chem
@@ -14,7 +13,10 @@ from autocgenff import (
     FallbackModel,
     PenaltyModel,
     TypingRule,
+    V5ForceField,
+    bundled_force_field_dir,
     parameterize,
+    parameterize_v5,
     prepare_molecule,
     read_parameters,
     read_topology,
@@ -292,7 +294,7 @@ def test_cli_input_errors_are_a_single_stderr_json_document(tmp_path, capfd, cas
 
 
 def test_protein_rtf_preserves_gly_last_patch():
-    path = Path(__file__).resolve().parents[1] / "force_fields" / "top_all36_prot.rtf"
+    path = bundled_force_field_dir() / "top_all36_prot.rtf"
     if not path.is_file():
         pytest.skip("User-supplied protein reference RTF not present")
     assert read_topology(path).residues["GLY"].patches == ("GLYP", "CTER")
@@ -972,6 +974,27 @@ def test_charge_and_fitting_validation_rejects_non_numeric_with_autocgenff_error
         PenaltyModel(bonded={("A", "B"): True})
     with pytest.raises(AutoCGENFFError, match="Maximum penalty"):
         PenaltyModel(max_penalty="10")
+
+
+def test_bundled_force_fields_work_by_default_in_api_and_cli(capsys):
+    ff_dir = bundled_force_field_dir()
+    for name in (
+        "par_all36_cgenff.prm",
+        "par_all36_cgenff_increments.prm",
+        "top_all36_cgenff.rtf",
+        "par_all36m_prot.prm",
+        "top_all36_prot.rtf",
+        "toppar_water_ions.str",
+    ):
+        assert (ff_dir / name).is_file()
+    ff = V5ForceField.from_directory()
+    res = parameterize_v5("CCO", ff)
+    assert res.is_complete
+    res_default = parameterize_v5("CCO")
+    assert res_default.is_complete
+    assert main(["assign-v5", "--smiles", "CCO"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["is_complete"] is True
 
 
 def test_analogy_rejects_boolean_improper_center():

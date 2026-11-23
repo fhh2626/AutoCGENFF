@@ -1,18 +1,17 @@
-"""Optional exact-map checks against a caller's local v5 RTF (not packaged).
+"""Exact-map checks against the bundled CGenFF v5 RTF.
 
 The predeclared correspondence is in SMILES atom order followed by appended H.
 Only the scorer reads RTF types, *after* inference. Chemically equivalent H are
 named in arbitrary fixed order. These are inspected regressions, not a holdout.
 """
 
-from pathlib import Path
-
 import pytest
 
+from autocgenff import bundled_force_field_dir
 from autocgenff.topology import read_topology
 from autocgenff.v5 import type_v5, v5_vocabulary
 
-RTF = Path(__file__).resolve().parents[1] / "force_fields" / "top_all36_cgenff.rtf"
+RTF = bundled_force_field_dir() / "top_all36_cgenff.rtf"
 pytestmark = pytest.mark.skipif(not RTF.is_file(), reason="local v5 RTF not supplied")
 
 

@@ -207,8 +207,8 @@ def _assign_v5(arguments: Sequence[str]) -> int:
     parser.add_argument(
         "--force-field",
         type=Path,
-        required=True,
-        help="directory containing the base CGenFF RTF and PRM",
+        default=None,
+        help="directory containing the base CGenFF RTF and PRM (default: bundled CGenFF 5.0 files)",
     )
     parser.add_argument(
         "--increments",

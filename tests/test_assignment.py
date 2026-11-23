@@ -9,6 +9,7 @@ from autocgenff import (
     AssignmentOptions,
     AutoCGENFFError,
     PenaltyModel,
+    bundled_force_field_dir,
     parameterize,
     prepare_molecule,
     read_parameters,
@@ -124,8 +125,9 @@ def test_cli_json_complete_incomplete_and_input_error(synthetic_forcefield, tmp_
 
 @pytest.fixture(scope="module")
 def local_forcefield():
-    prm = ROOT / "force_fields" / "par_all36_cgenff.prm"
-    rtf = ROOT / "force_fields" / "top_all36_cgenff.rtf"
+    ff_dir = bundled_force_field_dir()
+    prm = ff_dir / "par_all36_cgenff.prm"
+    rtf = ff_dir / "top_all36_cgenff.rtf"
     if not prm.is_file() or not rtf.is_file():
         pytest.skip("User-supplied CGenFF v5 PRM/RTF not present")
     parameters = read_parameters(prm)

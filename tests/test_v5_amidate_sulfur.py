@@ -1,10 +1,8 @@
 """Regression cases for deprotonated amides and low-valent sulfur."""
 
-from pathlib import Path
-
 import pytest
 
-from autocgenff import V5ForceField, parameterize_v5
+from autocgenff import V5ForceField, bundled_force_field_dir, parameterize_v5
 from autocgenff.v5 import type_v5
 
 
@@ -53,8 +51,7 @@ def test_three_coordinate_amidine_still_has_an_improper_center():
 
 
 def test_sulfenate_resolves_native_increments():
-    root = Path(__file__).resolve().parents[1]
-    data = root / "force_fields"
+    data = bundled_force_field_dir()
     required = ("par_all36_cgenff.prm", "top_all36_cgenff.rtf", "par_all36_cgenff_increments.prm")
     if not all((data / name).is_file() for name in required):
         pytest.skip("requires local native v5 force-field files")

@@ -18,7 +18,7 @@ It is an independent implementation for CGenFF 5.0, not the official CGenFF prog
 
 ## Local-v5 parameterization
 
-Use `autocgenff.parameterize_v5(molecule, directory)` or pass a reusable `V5ForceField.from_directory(directory)`. Supply compatible `top_all36_cgenff.rtf`, `par_all36_cgenff.prm` and `par_all36_cgenff_increments.prm`. Pass `increments_path=` if the native charge increments are stored elsewhere.
+Use `autocgenff.parameterize_v5(molecule)` or pass a reusable `V5ForceField.from_directory()`. Both default to the bundled CGenFF 5.0 files in `autocgenff/force_fields/`. Pass an explicit `directory` (with compatible `top_all36_cgenff.rtf`, `par_all36_cgenff.prm`, and `par_all36_cgenff_increments.prm`) or `increments_path=` to override them.
 
 Inspect `is_complete`, `issues`, `terms`, `lone_pairs` and `charge_diagnostics` before export. Charge seeds must sum to the formal charge of each connected component. The charges in `charge_diagnostics` are the real-atom totals from increments. Atom `partial_charge` values are the exported site charges after any transfer to a virtual site. Unresolved paths leave charges unavailable.
 
