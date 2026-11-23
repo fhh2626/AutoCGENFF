@@ -33,7 +33,7 @@ jobs:
 
       - name: Read package version
         run: |
-          version=$(python -c "import sys; sys.path.insert(0, 'src'); from autocgenff._version import __version__; print(__version__)")
+          version=$(python -c "ns={}; exec(open('src/autocgenff/_version.py', encoding='utf-8').read(), ns); print(ns['__version__'])")
           echo "Building autocgenff $version"
 
       - name: Build sdist and wheel
