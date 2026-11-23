@@ -1,5 +1,6 @@
 """Independent CGenFF-inspired typing, parameter and charge diagnostics."""
 
+from ._version import __version__
 from .analogy import BondGroup, FallbackModel, PenaltyModel
 from .assignment import AssignmentOptions, AssignmentResult, parameterize
 from .charges import ChargeModel
@@ -23,6 +24,7 @@ __all__ = [
     "TypingRule",
     "V5Assignment",
     "V5ForceField",
+    "__version__",
     "parameterize",
     "parameterize_v5",
     "prepare_molecule",

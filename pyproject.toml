@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autocgenff"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Independent CHARMM CGenFF-inspired small-molecule parameter diagnostics"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,9 @@ autocgenff = "autocgenff.cli:main"
 
 [tool.setuptools.cmdclass]
 sdist = "_build_commands.CleanSdist"
+
+[tool.setuptools.dynamic]
+version = {attr = "autocgenff._version.__version__"}
 
 [tool.setuptools.package-data]
 "autocgenff.v5" = ["*.rules"]
