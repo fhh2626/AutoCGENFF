@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,10 +7,9 @@ name = "autocgenff"
 dynamic = ["version"]
 description = "Independent CHARMM CGenFF-inspired small-molecule parameter diagnostics"
 readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
-classifiers = [
-  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-]
 authors = [
   { name = "Haohao Fu", email = "fhh2626@gmail.com" },
 ]
