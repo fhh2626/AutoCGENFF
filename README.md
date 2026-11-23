@@ -25,6 +25,20 @@ Both the CLI and the Python API run completely offline. Supported inputs are a p
 
 ## Installation
 
+Install from PyPI (Python 3.11 or newer):
+
+```sh
+pip install autocgenff
+```
+
+To install directly from the `master` branch:
+
+```sh
+pip install git+https://github.com/fhh2626/AutoCGENFF.git@master
+```
+
+The `master` branch can always be treated as the latest version, and GitHub Releases will not be updated.
+
 ## Quick start
 
 ### Atom typing only
