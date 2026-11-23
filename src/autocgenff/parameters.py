@@ -236,7 +236,12 @@ class Parameters:
     ) -> "CandidateIndex":
         """Return a cached improper CandidateIndex validated against source_centers."""
         cached = self._improper_index_cache
-        if cached is not None and cached[0] == improper_center and cached[1] == source_centers:
+        if (
+            cached is not None
+            and type(cached[0]) is type(improper_center)
+            and cached[0] == improper_center
+            and cached[1] == source_centers
+        ):
             return cached[2]
         index = builder()
         self._improper_index_cache = (improper_center, dict(source_centers), index)

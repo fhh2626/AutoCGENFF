@@ -34,7 +34,10 @@ class TypingRule:
         query = Chem.MolFromSmarts(self.smarts)
         if query is None or not 0 <= self.target < query.GetNumAtoms():
             raise AutoCGENFFError(f"Invalid SMARTS or target in typing rule {self.name!r}")
-        if self.atom_type == "X" or len(self.atom_type.split()) != 1:
+        if (
+            self.atom_type.upper() == "X"
+            or any(char.isspace() for char in self.atom_type)
+        ):
             raise AutoCGENFFError(f"Invalid atom type in typing rule {self.name!r}")
         object.__setattr__(self, "_query", query)
 

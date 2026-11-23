@@ -1,7 +1,8 @@
 """RDKit molecule preparation and explicit-hydrogen bonded inventory."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import combinations, product
@@ -241,21 +242,33 @@ def inventory(
                     path = (left, first, second, right)
                     propers.add(min(path, path[::-1]))
     for declared, size, paths in ((explicit_angles, 3, angles), (explicit_propers, 4, propers)):
-        for path in declared:
+        for raw_path in declared:
+            path = _coerce_path(raw_path)
             if not _valid_indices(path, size, len(neighbors)) or any(
                 right not in neighbors[left] for left, right in zip(path, path[1:], strict=False)
             ):
                 raise AutoCGENFFError(f"Invalid declared covalent path: {path}")
             paths.add(min(path, path[::-1]))
     ordered_impropers = []
-    seen = set()
-    for path in impropers:
-        if not _valid_indices(path, 4, len(neighbors)) or not any(
-            all(index in neighbors[center] for index in adjacent)
-            for center, adjacent in ((path[0], path[1:]), (path[-1], path[:-1]))
-        ):
+    seen: set[tuple[int, frozenset[int]] | tuple[int, ...]] = set()
+    for raw_path in impropers:
+        path = _coerce_path(raw_path)
+        centers = (
+            [
+                center
+                for center, adjacent in ((path[0], path[1:]), (path[-1], path[:-1]))
+                if all(index in neighbors[center] for index in adjacent)
+            ]
+            if _valid_indices(path, 4, len(neighbors))
+            else []
+        )
+        if not centers:
             raise AutoCGENFFError(f"Invalid declared improper (central atom first or last): {path}")
-        key = min(path, path[::-1])
+        key = (
+            (centers[0], frozenset(path) - {centers[0]})
+            if len(centers) == 1
+            else min(path, path[::-1])
+        )
         if key in seen:
             raise AutoCGENFFError(f"Duplicate declared improper: {path}")
         seen.add(key)
@@ -269,6 +282,12 @@ def inventory(
     ):
         result.extend(Term(kind, path) for path in paths)
     return tuple(result)
+
+
+def _coerce_path(path: object) -> tuple[int, ...]:
+    if isinstance(path, (str, bytes, Mapping, AbstractSet)) or not isinstance(path, Iterable):
+        raise AutoCGENFFError(f"Expected a sequence of atom indices, not {path!r}")
+    return tuple(path)
 
 
 def _valid_indices(path: tuple[int, ...], size: int, atom_count: int) -> bool:

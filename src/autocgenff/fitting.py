@@ -1,15 +1,16 @@
 """Staged regularized sparse least-squares fitting from caller-owned references."""
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence, Sized
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
-from math import isfinite, sqrt
+from math import sqrt
 
 import numpy as np
 from rdkit import Chem
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import lsqr
 
-from .charges import PATH_ORDER, ChargeModel, _check_charge_totals, formal_baseline
+from .charges import PATH_ORDER, ChargeModel, _check_charge_totals, _is_finite_real, formal_baseline
 from .errors import AutoCGENFFError
 from .molecule import inventory
 from .parameters import Types
@@ -53,7 +54,7 @@ def fit_increments(
     """
     if type(max_order) is not int or max_order not in (2, 3, 4):
         raise AutoCGENFFError("Fit max_order must be an integer (2, 3 or 4)")
-    if not isfinite(ridge) or ridge < 0:
+    if not _is_finite_real(ridge) or ridge < 0:
         raise AutoCGENFFError("Fit ridge must be finite and nonnegative")
     if not references:
         raise AutoCGENFFError("At least one typed reference is required")
@@ -64,9 +65,15 @@ def fit_increments(
         count = molecule.GetNumAtoms()
         if (
             not count
+            or isinstance(reference.types, (str, bytes, Mapping, AbstractSet))
+            or isinstance(reference.charges, (str, bytes, Mapping, AbstractSet))
+            or not isinstance(reference.types, Iterable)
+            or not isinstance(reference.charges, Iterable)
+            or not isinstance(reference.types, Sized)
+            or not isinstance(reference.charges, Sized)
             or len(reference.types) != count
             or len(reference.charges) != count
-            or not all(isfinite(charge) for charge in reference.charges)
+            or not all(_is_finite_real(charge) for charge in reference.charges)
         ):
             raise AutoCGENFFError("Reference requires one type and a finite target charge per atom")
         if any(atom.GetNumImplicitHs() or atom.GetNumExplicitHs() for atom in molecule.GetAtoms()):

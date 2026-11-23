@@ -9,7 +9,9 @@ from rdkit import Chem
 from autocgenff import (
     AssignmentOptions,
     AutoCGENFFError,
+    BondGroup,
     ChargeModel,
+    FallbackModel,
     PenaltyModel,
     TypingRule,
     parameterize,
@@ -17,8 +19,9 @@ from autocgenff import (
     read_parameters,
     read_topology,
 )
+from autocgenff.analogy import CandidateIndex, best_analogy
 from autocgenff.assignment import _lookup_term
-from autocgenff.charges import assign_charges
+from autocgenff.charges import assign_charges, formal_baseline
 from autocgenff.cli import main
 from autocgenff.fitting import TypedReference, fit_increments
 from autocgenff.molecule import Kind, Term, inventory
@@ -884,3 +887,96 @@ def test_charge_assignment_rejects_invalid_covalent_paths(term):
     model = ChargeModel({("A", "B"): (0.1,), ("A", "C"): (0.2,), ("H", "B"): (0.3,)})
     with pytest.raises(AutoCGENFFError, match=f"Invalid {term.kind} charge path"):
         assign_charges(mol, types, (term,), model)
+
+
+@pytest.mark.parametrize(
+    "duplicate_pair",
+    [
+        ((0, 1, 2, 3), (1, 2, 3, 0)),
+        ((0, 1, 2, 3), (0, 2, 1, 3)),
+    ],
+)
+def test_inventory_rejects_duplicate_physical_impropers(duplicate_pair):
+    mol = prepare_molecule("C(=O)(N)C")
+    with pytest.raises(AutoCGENFFError, match="Duplicate declared improper"):
+        inventory(mol, duplicate_pair)
+
+
+def test_inventory_accepts_list_paths_and_rejects_non_sequence():
+    mol = prepare_molecule("C(=O)(N)C")
+    terms = inventory(mol, [[0, 1, 2, 3]])
+    assert any(t.kind == Kind.IMPROPER and t.atoms == (0, 1, 2, 3) for t in terms)
+    for bad in ("0123", {0, 1, 2, 3}, {0: 1, 2: 3}):
+        with pytest.raises(AutoCGENFFError, match="sequence of atom indices"):
+            inventory(mol, [bad])
+
+
+@pytest.mark.parametrize("bad_type", ["x", " X", " CG331 ", "A B"])
+def test_typing_rule_rejects_lowercase_x_and_whitespace(bad_type):
+    with pytest.raises(AutoCGENFFError, match="Invalid atom type"):
+        TypingRule("bad", "[#6]", bad_type)
+
+
+def test_topology_defers_bad_colinear_lonepair_and_ignores_mass_inside_resi(tmp_path):
+    rtf = _write(
+        tmp_path,
+        "deferred.rtf",
+        "MASS -1 C1 12.011 C\n"
+        "MASS -1 H1 1.008 H\n"
+        "RESI GOOD 0\n"
+        "ATOM C1 C1 0\n"
+        "ATOM H1 H1 0\n"
+        "BOND C1 H1\n"
+        "MASS -1 N1 14.007 N\n"
+        "RESI BADLP 0\n"
+        "ATOM C1 C1 0\n"
+        "ATOM LP1 C1 0\n"
+        "LONEPAIR COLINEAR LP1 C1 C1 DIST NOTANUM\n"
+        "END\n",
+    )
+    topo = read_topology(rtf)
+    assert not topo.residues["GOOD"].unsupported
+    assert topo.elements["N1"] == "N"
+    assert "LONEPAIR" in topo.residues["BADLP"].unsupported
+
+
+def test_charge_and_fitting_validation_rejects_non_numeric_with_autocgenff_error():
+    mol = prepare_molecule("ClCl")
+    for bad_values in (0.1, "0.1", (True,), ("0.1",), {0.1: 1}, {0.1}):
+        with pytest.raises(AutoCGENFFError, match="Invalid increment entry"):
+            ChargeModel({("A", "B"): bad_values}, max_order=2)
+    for bad_order in (4.0, True):
+        with pytest.raises(AutoCGENFFError, match="max_order"):
+            ChargeModel({("A", "B"): (0.1,)}, max_order=bad_order)
+    for bad_cutoff in (True, "50"):
+        with pytest.raises(AutoCGENFFError, match="Torsion cutoff"):
+            ChargeModel({("A", "B"): (0.1,)}, torsion_cutoff=bad_cutoff)
+    for bad_baseline in (("0", "0"), (True, False), {0.5: "a", -0.5: "b"}, {0.5, -0.5}):
+        with pytest.raises(AutoCGENFFError, match="Formal baseline"):
+            formal_baseline(mol, bad_baseline)
+    with pytest.raises(AutoCGENFFError, match="finite target charge"):
+        fit_increments([TypedReference(mol, ("A", "B"), (True, False))])
+    with pytest.raises(AutoCGENFFError, match="finite target charge"):
+        fit_increments([TypedReference(mol, ("A", "B"), None)])
+    for bad_ridge in (True, "0.001"):
+        with pytest.raises(AutoCGENFFError, match="Fit ridge"):
+            fit_increments([TypedReference(mol, ("A", "B"), (0.0, 0.0))], ridge=bad_ridge)
+    for bad_members in ({"A": 1}, 5):
+        with pytest.raises(AutoCGENFFError, match="Invalid bond-group"):
+            BondGroup("G", bad_members, 1.0)
+    with pytest.raises(AutoCGENFFError, match="Invalid bond-group"):
+        BondGroup("G", {"A"}, True)
+    with pytest.raises(AutoCGENFFError, match="Invalid fallback"):
+        FallbackModel({("diff",): True}, {}, {})
+    with pytest.raises(AutoCGENFFError, match="Invalid bonded substitution"):
+        PenaltyModel(bonded={("A", "B"): True})
+    with pytest.raises(AutoCGENFFError, match="Maximum penalty"):
+        PenaltyModel(max_penalty="10")
+
+
+def test_analogy_rejects_boolean_improper_center():
+    model = PenaltyModel(bonded={("E", "A"): 1.0})
+    with pytest.raises(AutoCGENFFError, match="improper_center"):
+        CandidateIndex(Kind.IMPROPER, [("A", "B", "C", "D")], improper_center=False)
+    with pytest.raises(AutoCGENFFError, match="central atom position"):
+        best_analogy(Kind.IMPROPER, ("E", "B", "C", "D"), [("A", "B", "C", "D")], model, improper_center=False)

@@ -5,6 +5,7 @@ from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from math import fsum, inf, isfinite
+from numbers import Real
 from types import MappingProxyType
 
 from .errors import AutoCGENFFError
@@ -20,6 +21,10 @@ TYPE_RELATIONS: tuple[tuple[str, ...], ...] = (
     ("elem", "other"),
     ("diff",),
 )
+
+
+def _is_finite_real(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, Real) and isfinite(value)
 
 
 def type_relation(target: str, source: str, elements: Mapping[str, str]) -> tuple[str, ...]:
@@ -48,7 +53,7 @@ class FallbackModel:
     def __post_init__(self) -> None:
         for name, table in (("bonded", self.bonded), ("nonbonded", self.nonbonded)):
             for key, value in table.items():
-                if not isfinite(value) or value < 0:
+                if not _is_finite_real(value) or value < 0:
                     raise AutoCGENFFError(f"Invalid fallback {name} penalty for {key}")
             object.__setattr__(self, name, MappingProxyType(dict(table)))
         object.__setattr__(self, "elements", MappingProxyType(dict(self.elements)))
@@ -71,8 +76,13 @@ class BondGroup:
     penalty: float
 
     def __post_init__(self) -> None:
+        if (
+            isinstance(self.members, (str, bytes, Mapping))
+            or not isinstance(self.members, Iterable)
+        ):
+            raise AutoCGENFFError("Invalid bond-group name, members or penalty")
         object.__setattr__(self, "members", frozenset(self.members))
-        if not self.name or not self.members or not isfinite(self.penalty) or self.penalty < 0:
+        if not self.name or not self.members or not _is_finite_real(self.penalty) or self.penalty < 0:
             raise AutoCGENFFError("Invalid bond-group name, members or penalty")
 
 
@@ -90,7 +100,7 @@ class PenaltyModel:
     def __post_init__(self) -> None:
         for name, mapping in (("bonded", self.bonded), ("nonbonded", self.nonbonded)):
             for (target, source), value in mapping.items():
-                if target == "X" or source == "X" or not isfinite(value) or value < 0:
+                if target == "X" or source == "X" or not _is_finite_real(value) or value < 0:
                     raise AutoCGENFFError(f"Invalid {name} substitution {target}->{source}")
                 if target == source and value != 0:
                     raise AutoCGENFFError("Penalty matrix diagonals must be zero")
@@ -103,7 +113,7 @@ class PenaltyModel:
                     f"Equivalent bond groups {group.name!r} need identical penalties"
                 )
         if self.max_penalty is not None and (
-            not isfinite(self.max_penalty) or self.max_penalty < 0
+            not _is_finite_real(self.max_penalty) or self.max_penalty < 0
         ):
             raise AutoCGENFFError("Maximum penalty must be finite and nonnegative")
 
@@ -166,6 +176,10 @@ class CandidateIndex:
         improper_center: int | None = None,
         source_improper_centers: Mapping[Types, int] | None = None,
     ) -> None:
+        if kind == Kind.IMPROPER and (type(improper_center) is not int or improper_center not in {0, 3}):
+            raise AutoCGENFFError(
+                "CandidateIndex improper_center must be an explicit central atom position (0 or 3)"
+            )
         self.kind = kind
         self.improper_center = improper_center
         expected_len = _ARITY[kind]
@@ -175,12 +189,10 @@ class CandidateIndex:
             if "X" in source or len(source) != expected_len:
                 continue
             if kind == Kind.IMPROPER:
-                if improper_center not in {0, 3}:
-                    continue
                 source_center = (
                     0 if source_improper_centers is None else source_improper_centers.get(source)
                 )
-                if source_center not in {0, 3}:
+                if type(source_center) is not int or source_center not in {0, 3}:
                     continue
                 reverse = source_center != improper_center
                 ordered = ((source[::-1] if reverse else source, reverse),)
@@ -216,7 +228,7 @@ def best_analogy(
     """
     if len(target) != _ARITY[kind] or "X" in target:
         raise AutoCGENFFError(f"Invalid type tuple for {kind}: {target}")
-    if kind == Kind.IMPROPER and improper_center not in {0, 3}:
+    if kind == Kind.IMPROPER and (type(improper_center) is not int or improper_center not in {0, 3}):
         raise AutoCGENFFError(
             "Improper analogy requires an explicit central atom position (0 or 3)"
         )
@@ -244,7 +256,7 @@ def best_analogy(
             source_center = (
                 0 if source_improper_centers is None else source_improper_centers.get(source)
             )
-            if source_center not in {0, 3}:
+            if type(source_center) is not int or source_center not in {0, 3}:
                 continue
             reverse = source_center != improper_center
             ordered = ((source[::-1] if reverse else source, reverse),)

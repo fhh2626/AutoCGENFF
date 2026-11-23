@@ -51,7 +51,11 @@ def read_native_increments(path: Path) -> ChargeModel:
             head = fields[0]
             if head == "END":
                 break
-            if head in _SECTIONS or head in {"ATOMS", "CMAP", "HBOND", "THOLE"}:
+            if (
+                head in _SECTIONS
+                or head in {"ATOMS", "CMAP", "HBOND", "THOLE", "MASS", "PRIN", "PRINT"}
+                or (len(fields) == 1 and "<%" not in line and "%>" not in line)
+            ):
                 kind = _SECTIONS.get(head)
                 shape = _SHAPES[kind] if kind in _INCREMENT_KINDS else None
                 continue
@@ -300,19 +304,20 @@ def observed_alkyl_model(
     unambiguous mismatch. Use the mode (lower cost breaks ties)
     across independent parameter groups. All other off-diagonals are forbidden.
     """
-    selected = {
-        group[0].line: (kind, group[0].types)
-        for kind in _INCREMENT_KINDS
-        for group in parameters.iter_groups(kind)
-    }
+    selected = {}
+    for kind in _INCREMENT_KINDS:
+        for group in parameters.iter_groups(kind):
+            for row in group:
+                selected[row.line] = kind, row.types, group[0].line
     observed = defaultdict(lambda: defaultdict(list))
+    seen_groups: set[int] = set()
     with parameters.source.open(encoding="utf-8-sig") as handle:
         for line_no, line in enumerate(handle, 1):
             if line_no not in selected:
                 continue
-            kind, types = selected[line_no]
+            kind, types, group_line = selected[line_no]
             match = _ANNOTATION.search(line.partition("!")[2])
-            if match is None:
+            if match is None or group_line in seen_groups:
                 continue
             source = tuple(match[1].upper().split())
             if len(source) != len(types) or "X" in source or "X" in types:
@@ -333,6 +338,7 @@ def observed_alkyl_model(
             source_match = parameters.match(kind, source)
             if source_match is None or source_match.wildcard:
                 continue
+            seen_groups.add(group_line)
             inner = kind == Kind.BOND or 0 < i < len(types) - 1
             cost = float(match[2]) / (10 if inner else 1)
             observed[("bonded" if inner else "nonbonded", a, b)][cost].append(line_no)

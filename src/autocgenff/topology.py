@@ -147,6 +147,7 @@ def read_topology(path: Path) -> Topology:
                 masses[args[1]] = mass
                 if len(args) >= 4:
                     elements[args[1]] = args[3].title()
+                continue
             if head in {"AUTO", "AUTOGENERATE"}:
                 auto_angles = any(arg.startswith("ANGL") for arg in args)
                 auto_propers = any(arg.startswith("DIHE") for arg in args)
@@ -237,7 +238,10 @@ def _parse_colinear_lonepair(args: list[str]) -> TemplateLonePair | None:
     scale: float | None = None
     for idx in range(0, len(rest), 2):
         key, val = rest[idx], rest[idx + 1]
-        num = float(val)
+        try:
+            num = float(val)
+        except ValueError:
+            return None
         if not isfinite(num):
             return None
         if key.startswith("DIST"):

@@ -159,6 +159,8 @@ def _check_residue(res: Residue, result: V5Assignment) -> None:
         raise AutoCGENFFError("Serialized bond orders or valences are not a closed-shell ligand")
     if len(Chem.GetMolFrags(graph)) != 1:
         raise AutoCGENFFError("Stream export requires a single connected ligand residue")
+    if any(atom_name not in names for imp in res.impropers for atom_name in imp):
+        raise AutoCGENFFError("Serialized improper references unknown or lone-pair atom")
     impropers = [tuple(names[n] for n in imp) for imp in res.impropers]
     if Counter(p[0] for p in impropers) != Counter(a.index for a in atoms if a.improper_center):
         raise AutoCGENFFError("Serialized improper centers differ from the typing rules")

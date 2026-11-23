@@ -634,3 +634,52 @@ def test_custom_precision_lone_pair_round_trips_stream(local, tmp_path):
     with pytest.raises(AutoCGENFFError, match="Invalid lone-pair indices"):
         write_v5_stream(invalid, stream, residue_name="PLIG")
     assert stream.read_text(encoding="ascii") == text
+
+
+def test_observed_alkyl_model_and_native_increments_header_edges(tmp_path):
+    from autocgenff.parameters import read_parameters
+    from autocgenff.v5_inputs import observed_alkyl_model, read_native_increments
+
+    prm = tmp_path / "alkyl_later.prm"
+    prm.write_text(
+        "DIHEDRALS\n"
+        "CG321 CG321 CG321 CG321 1 1 0\n"
+        "CG331 CG321 CG321 CG321 2 1 0\n"
+        "CG331 CG321 CG321 CG321 2 2 0 ! from CG321 CG321 CG321 CG321, penalty=4.0\n"
+        "END\n",
+        encoding="utf-8",
+    )
+    model, evidence = observed_alkyl_model(read_parameters(prm))
+    assert model.nonbonded[("CG331", "CG321")] == 4.0
+    assert [(e.line, e.cost) for e in evidence] == [(4, 4.0)]
+
+    inc = tmp_path / "inc.prm"
+    inc.write_text(
+        "BONDS\n"
+        "CG331 CG321 10 1.5 !<% 0.05 %>!\n"
+        "MASS\n"
+        "CG1N1 CG1T1 CG1T2 CG331 1 1 0\n"
+        "END\n",
+        encoding="utf-8",
+    )
+    loaded = read_native_increments(inc)
+    assert loaded.linear_centers == frozenset()
+
+
+def test_check_residue_rejects_unknown_improper_atom_name_as_autocgenff_error(local):
+    from autocgenff.topology import Residue, TemplateAtom
+    from autocgenff.v5_stream import _check_residue
+
+    r = parameterize_v5("CC(=O)N", local)
+    bad = Residue(
+        name="LIG",
+        charge=0.0,
+        line=1,
+        auto_angles=True,
+        auto_propers=True,
+        atoms=[TemplateAtom(a.name.upper(), a.atom_type, a.partial_charge or 0.0) for a in r.atoms],
+        bonds={tuple(sorted((r.atoms[b.atoms[0]].name.upper(), r.atoms[b.atoms[1]].name.upper()))): b.order for b in r.bonds},
+        impropers=[("UNKNOWN", r.atoms[0].name.upper(), r.atoms[2].name.upper(), r.atoms[3].name.upper())],
+    )
+    with pytest.raises(AutoCGENFFError, match="unknown or lone-pair atom"):
+        _check_residue(bad, r)

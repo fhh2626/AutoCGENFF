@@ -254,7 +254,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args = parser.parse_args(arguments[1:])
             with rdBase.BlockLogs():
                 typed = type_v5(args.input if args.smiles is None else args.smiles)
-            print(json.dumps({**asdict(typed), "is_complete": typed.is_complete}, indent=2))
+            print(json.dumps({**asdict(typed), "is_complete": typed.is_complete}, indent=2, allow_nan=False))
             return 0 if typed.is_complete else 1
         args = _parser().parse_args(arguments)
         # Native RDKit logs would otherwise corrupt the CLI's JSON stderr channel.

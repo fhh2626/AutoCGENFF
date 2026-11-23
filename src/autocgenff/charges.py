@@ -1,8 +1,10 @@
 """Antisymmetric bond, angle and proper-torsion charge increments."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from math import fsum, isclose, isfinite, sqrt
+from numbers import Real
 from types import MappingProxyType
 from weakref import finalize
 
@@ -16,6 +18,10 @@ from .parameters import Types
 PATH_ORDER = {Kind.BOND: 2, Kind.ANGLE: 3, Kind.PROPER: 4}
 ZERO_WEIGHT = 0.05**6
 CHARGE_TOLERANCE = 1e-6
+
+
+def _is_finite_real(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, Real) and isfinite(value)
 
 
 def reverse_increments(values: tuple[float, ...]) -> tuple[float, ...]:
@@ -43,19 +49,27 @@ class ChargeModel:
     linear_centers: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
-        if self.max_order not in (2, 3, 4):
-            raise AutoCGENFFError("Increment model max_order must be 2, 3 or 4")
-        if not isfinite(self.torsion_cutoff) or self.torsion_cutoff <= 0:
+        if type(self.max_order) is not int or self.max_order not in (2, 3, 4):
+            raise AutoCGENFFError("Increment model max_order must be an integer (2, 3 or 4)")
+        if not _is_finite_real(self.torsion_cutoff) or self.torsion_cutoff <= 0:
             raise AutoCGENFFError("Torsion cutoff must be finite and positive")
+        if not isinstance(self.increments, Mapping):
+            raise AutoCGENFFError("Increment model increments must be a mapping")
         canonical = {}
         for types, values in self.increments.items():
-            values = None if values is None else tuple(values)
+            if values is not None:
+                if (
+                    isinstance(values, (str, bytes, Mapping, AbstractSet))
+                    or not isinstance(values, Iterable)
+                ):
+                    raise AutoCGENFFError(f"Invalid increment entry for {types}")
+                values = tuple(values)
             if (
                 not isinstance(types, tuple)
                 or not 2 <= len(types) <= self.max_order
                 or (
                     values is not None
-                    and (len(values) != len(types) - 1 or not all(map(isfinite, values)))
+                    and (len(values) != len(types) - 1 or not all(map(_is_finite_real, values)))
                 )
                 or not all(isinstance(item, str) and item and item != "X" for item in types)
             ):
@@ -108,8 +122,10 @@ def formal_baseline(
     formal = tuple(atom.GetFormalCharge() for atom in molecule.GetAtoms())
     if baseline is None:
         return formal
+    if isinstance(baseline, (str, bytes, Mapping, AbstractSet)) or not isinstance(baseline, Iterable):
+        raise AutoCGENFFError("Formal baseline must have one finite value per explicit atom")
     values = tuple(baseline)
-    if len(values) != len(formal) or not all(isfinite(value) for value in values):
+    if len(values) != len(formal) or not all(_is_finite_real(value) for value in values):
         raise AutoCGENFFError("Formal baseline must have one finite value per explicit atom")
     _check_charge_totals(
         molecule, values, formal, "Custom baseline does not preserve formal charge"
